@@ -1557,16 +1557,6 @@ provider or `base_url`. A single-slot local server that receives the `json_schem
 request while decoding the reply can otherwise answer the reply with `{"title": ...}`,
 which is then stored and replayed as the assistant's turn.
 
-### Next-prompt suggestions (classic CLI)
-
-Set `display.next_prompt_suggestions: true` and, after each finished turn, a small auxiliary model
-guesses your most likely next prompt and shows it as gray ghost text in the empty input. Press
-Tab to accept it as editable text; typing a prefix of it keeps showing the remainder, and typing
-anything else (or submitting) drops it. It is off by default because it costs one small auxiliary
-call per turn. The call never enters the conversation, so it cannot affect prompt caching, and a
-slow or failed call just shows nothing. Route it with `auxiliary.next_prompt.*` (provider `auto`
-follows your session's live model; timeout defaults to 15s).
-
 In Hermes Desktop, a plain-text paste over 3,000 characters becomes a generated `.txt`
 attachment. The first ~1,000 characters of that paste are handed to the title stages as a
 title-only hint (the agent turn still sees only the attachment reference), so a "summarize
@@ -1578,6 +1568,16 @@ session titling, before channel-bound skills and platform context are added.
 The main model and conversation history still retain the full skill content.
 Attachment-only turns retain the existing enriched-message title fallback.
 This affects new title generation; it does not repair previously named sessions.
+
+### Next-prompt suggestions (classic CLI)
+
+Set `display.next_prompt_suggestions: true` and, after each finished turn, a small auxiliary model
+guesses your most likely next prompt and shows it as gray ghost text in the empty input. Press
+Tab to accept it as editable text; typing a prefix of it keeps showing the remainder, and typing
+anything else hides it (deleting back to a prefix brings it back) until you submit. It is off by default because it costs one small auxiliary
+call per turn. The call never enters the conversation, so it cannot affect prompt caching, and a
+slow or failed call just shows nothing. Route it with `auxiliary.next_prompt.*` (provider `auto`
+follows your session's live model; timeout defaults to 15s).
 
 ### Stream-only endpoints
 
