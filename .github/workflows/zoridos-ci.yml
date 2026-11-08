@@ -58,9 +58,8 @@ jobs:
         run: |
           "$HERMES_PYTHON" -c "import sqlite3, sys, hermes_state_wal as w; v = w.is_sqlite_wal_reset_vulnerable(); print(f'Python {sys.version.split()[0]}, SQLite {sqlite3.sqlite_version}, WAL-reset vulnerable: {v}'); sys.exit(1 if v else 0)"
 
-      - name: Ruff on changed Python files
-        # Upstream's ruff config (ruff.toml). --force-exclude keeps the config's
-        # `exclude` honoured for files named explicitly on the command line.
+      - name: Find the diff base
+        # PR: merge base with the target branch. Push to main: the pre-push tip.
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -74,9 +73,16 @@ jobs:
           else
             base=$(git rev-parse HEAD~1 2>/dev/null || git hash-object -t tree /dev/null)
           fi
-          mapfile -d '' files < <(git diff --name-only -z --diff-filter=d "$base" HEAD -- '*.py' '*.pyi')
+          echo "DIFF_BASE=$base" >> "$GITHUB_ENV"
+
+      - name: Ruff on changed Python files
+        # Upstream's ruff config (ruff.toml). --force-exclude keeps the config's
+        # `exclude` honoured for files named explicitly on the command line.
+        run: |
+          set -euo pipefail
+          mapfile -d '' files < <(git diff --name-only -z --diff-filter=d "$DIFF_BASE" HEAD -- '*.py' '*.pyi')
           if [ "${#files[@]}" -eq 0 ]; then
-            echo "No Python files changed since $base; nothing to lint."
+            echo "No Python files changed since $DIFF_BASE; nothing to lint."
             exit 0
           fi
           printf 'ruff: %s\n' "${files[@]}"
@@ -88,7 +94,8 @@ jobs:
       - name: Run tests
         # Narrowed from all of tests/hermes_cli/ (~1,885 files), which cannot finish in
         # the 15-minute budget on a 4-vCPU hosted runner. Runs only the completion,
-        # autosuggest, keybinding and next-prompt tests; patterns that match nothing
+        # autosuggest, keybinding and next-prompt tests, plus every test file the change
+        # touches (so a PR's own tests always run); patterns that match nothing
         # (files that have not landed yet) are skipped.
         run: |
           set -euo pipefail
@@ -100,6 +107,9 @@ jobs:
             tests/hermes_cli/test_next_prompt*.py
             tests/agent/test_next_prompt*.py
           )
+          mapfile -d '' changed < <(git diff --name-only -z --diff-filter=d "$DIFF_BASE" HEAD -- 'tests/**/test_*.py')
+          files+=("${changed[@]}")
+          mapfile -t files < <(printf '%s\n' "${files[@]}" | sort -u)
           [ "${#files[@]}" -gt 0 ] || { echo "no matching test files" >&2; exit 1; }
           printf 'test file: %s\n' "${files[@]}"
           scripts/run_tests.sh "${files[@]}"
