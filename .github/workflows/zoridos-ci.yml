@@ -107,9 +107,13 @@ jobs:
             tests/hermes_cli/test_next_prompt*.py
             tests/agent/test_next_prompt*.py
           )
-          mapfile -d '' changed < <(git diff --name-only -z --diff-filter=d "$DIFF_BASE" HEAD -- 'tests/**/test_*.py')
-          files+=("${changed[@]}")
-          mapfile -t files < <(printf '%s\n' "${files[@]}" | sort -u)
+          mapfile -d '' changed < <(git diff --name-only -z --diff-filter=d "$DIFF_BASE" HEAD -- ':(glob)tests/**/test_*.py')
+          declare -A seen=()
+          selected=()
+          for f in "${files[@]}" "${changed[@]}"; do
+            [ -n "${seen[$f]:-}" ] || { seen[$f]=1; selected+=("$f"); }
+          done
+          files=("${selected[@]}")
           [ "${#files[@]}" -gt 0 ] || { echo "no matching test files" >&2; exit 1; }
           printf 'test file: %s\n' "${files[@]}"
           scripts/run_tests.sh "${files[@]}"
