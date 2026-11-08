@@ -35,8 +35,28 @@ jobs:
           test-environment: 'true'
           prune-python-cache: true
 
-      - name: Install ruff (pinned by scripts/code_health)
-        run: python -m scripts.ci.python_packages "$(python -m scripts.code_health --print-pins)"
+      - name: Install ripgrep (prebuilt binary)
+        run: |
+          set -euo pipefail
+          RG_VERSION=15.1.0
+          RG_SHA256=1c9297be4a084eea7ecaedf93eb03d058d6faae29bbc57ecdaf5063921491599
+          RG_TARBALL=ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl.tar.gz
+          curl -sSfL --retry 3 --retry-delay 5 -o "$RG_TARBALL" \
+            "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/${RG_TARBALL}"
+          echo "${RG_SHA256}  ${RG_TARBALL}" | sha256sum -c -
+          tar -xzf "$RG_TARBALL"
+          sudo mv "ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl/rg" /usr/local/bin/rg
+          rm -rf "$RG_TARBALL" "ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl"
+          rg --version
+
+      - name: Check SQLite runs WAL
+        # Hermes picks DELETE journal mode on a SQLite with the WAL-reset
+        # bug. If the PM-pinned interpreter links one, every WAL test silently
+        # runs DELETE (or skips), so fail loudly instead. Tests that need DELETE
+        # select it explicitly (journal_mode config, a pinned vulnerable
+        # version), so they run on any interpreter.
+        run: |
+          "$HERMES_PYTHON" -c "import sqlite3, sys, hermes_state_wal as w; v = w.is_sqlite_wal_reset_vulnerable(); print(f'Python {sys.version.split()[0]}, SQLite {sqlite3.sqlite_version}, WAL-reset vulnerable: {v}'); sys.exit(1 if v else 0)"
 
       - name: Ruff on changed Python files
         # Upstream's ruff config (ruff.toml). --force-exclude keeps the config's
@@ -60,24 +80,31 @@ jobs:
             exit 0
           fi
           printf 'ruff: %s\n' "${files[@]}"
-          ruff check --force-exclude "${files[@]}"
+          # Command form: ruff runs in the isolated ci-tools env without replacing
+          # the test interpreter setup-pm exported for the steps below.
+          python -m scripts.ci.python_packages "$(python -m scripts.code_health --print-pins)" \
+            -- -m ruff check --force-exclude "${files[@]}"
 
       - name: Run tests
-        # All of tests/hermes_cli/, plus the completion / autosuggest / keybinding
-        # / next-prompt tests wherever they live under tests/. Globs match
-        # nothing until those files exist, which is fine.
+        # Narrowed from all of tests/hermes_cli/ (~1,885 files), which cannot finish in
+        # the 15-minute budget on a 4-vCPU hosted runner. Runs only the completion,
+        # autosuggest, keybinding and next-prompt tests; patterns that match nothing
+        # (files that have not landed yet) are skipped.
         run: |
           set -euo pipefail
-          shopt -s nullglob globstar
-          declare -A seen=()
-          extra=()
-          for f in tests/**/test_*completion*.py tests/**/*autosuggest*.py \
-                   tests/**/*keybind*.py tests/**/test_next_prompt*.py; do
-            case "$f" in tests/hermes_cli/*) continue ;; esac
-            [ -z "${seen[$f]:-}" ] && { seen[$f]=1; extra+=("$f"); }
-          done
-          scripts/run_tests.sh tests/hermes_cli/ "${extra[@]}"
+          shopt -s nullglob
+          files=(
+            tests/hermes_cli/test_completion*.py
+            tests/hermes_cli/*autosuggest*.py
+            tests/hermes_cli/*keybind*.py
+            tests/hermes_cli/test_next_prompt*.py
+            tests/agent/test_next_prompt*.py
+          )
+          [ "${#files[@]}" -gt 0 ] || { echo "no matching test files" >&2; exit 1; }
+          printf 'test file: %s\n' "${files[@]}"
+          scripts/run_tests.sh "${files[@]}"
         env:
+          HERMES_TEST_WORKERS: 4
           HERMES_TEST_FILE_TIMEOUT: 600
           OPENROUTER_API_KEY: ""
           OPENAI_API_KEY: ""
