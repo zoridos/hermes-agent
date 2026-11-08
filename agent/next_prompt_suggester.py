@@ -41,6 +41,19 @@ def clean_suggestion(raw: Any) -> Optional[str]:
     return line
 
 
+def last_exchange(history: list) -> tuple[str, str]:
+    """(user, assistant) text of the latest assistant message and the user message before it;
+    empty when that latest assistant message carries no text (never reaches back to an older reply)."""
+    messages = list(history or [])
+    idx = next((i for i in range(len(messages) - 1, -1, -1) if messages[i].get("role") == "assistant"), None)
+    if idx is None:
+        return "", ""
+    assistant = flatten_message_text(messages[idx].get("content"))
+    user = next((flatten_message_text(m.get("content")) for m in reversed(messages[:idx])
+                 if m.get("role") == "user"), "")
+    return user, assistant
+
+
 def generate_next_prompt(
     user_message: str, assistant_message: str, timeout: Optional[float] = None,
     main_runtime: dict | None = None,

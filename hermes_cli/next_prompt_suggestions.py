@@ -9,8 +9,6 @@ from typing import Any, Callable, Optional
 
 from prompt_toolkit.auto_suggest import Suggestion
 
-from agent.aux_accounting import set_accounting_context
-from agent.next_prompt_suggester import generate_next_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -69,20 +67,6 @@ def _idle_and_empty(cli: Any) -> bool:
             and cli._pending_input.empty() and cli._interrupt_queue.empty())
 
 
-def _last_exchange(history: list) -> tuple[str, str]:
-    """(user, assistant) text of the latest assistant message and the user message before it;
-    empty when that latest assistant message carries no text (never reaches back to an older reply)."""
-    from agent.message_content import flatten_message_text
-    messages = list(history or [])
-    idx = next((i for i in range(len(messages) - 1, -1, -1) if messages[i].get("role") == "assistant"), None)
-    if idx is None:
-        return "", ""
-    assistant = flatten_message_text(messages[idx].get("content"))
-    user = next((flatten_message_text(m.get("content")) for m in reversed(messages[:idx])
-                 if m.get("role") == "user"), "")
-    return user, assistant
-
-
 def _apply(cli: Any, generation: int, text: str) -> None:
     """Runs on the UI thread: the generation and idle/empty checks and the buffer write are one step,
     so a keystroke cannot land between them."""
@@ -105,12 +89,15 @@ def _deliver(cli: Any, generation: int, text: Optional[str]) -> None:
         _apply(cli, generation, text)
 
 
-def _runtime_snapshot(cli: Any) -> dict:
-    """The live session route, taken on the owning thread (like /btw and the titler): launch and
-    ``/model`` overrides live on the agent, not in config.yaml."""
-    agent = getattr(cli, "agent", None)
-    keys = ("model", "provider", "base_url", "api_key", "api_mode", "session_id")
-    return {k: getattr(agent, k, None) or getattr(cli, k, None) for k in keys}
+def _request_suggestion(cli: Any) -> str:
+    """Ask the session's owner for the guess (``prompt.next_prompt``); '' when there is none. The owner
+    runs the call on the session's live route and bills it to the session."""
+    from hermes_cli import gateway_side
+    connection = gateway_side.connection_for(cli)
+    if connection is None:
+        return ""
+    _task_id, wait = gateway_side.start(connection, cli.session_id, "next_prompt")
+    return wait()
 
 
 def maybe_suggest_next_prompt(cli: Any) -> None:
@@ -119,25 +106,16 @@ def maybe_suggest_next_prompt(cli: Any) -> None:
         if (not _setting_enabled() or not _idle_and_empty(cli)
                 or cli._last_turn_interrupted or cli._last_turn_failed):
             return
-        user, assistant = _last_exchange(cli.conversation_history)
-        if not (user and assistant):
-            return
         state = _state(cli)
         state.text = None
         state.generation += 1
         generation = state.generation
 
-        main_runtime = _runtime_snapshot(cli)
-        session_db = getattr(getattr(cli, "agent", None), "_session_db", None) or getattr(cli, "_session_db", None)
-        session_id = main_runtime["session_id"]
-
         def work() -> None:
             try:
-                # The worker starts outside any turn, so republish the owning session's accounting handles.
-                set_accounting_context(session_db, session_id)
-                _deliver(cli, generation, generate_next_prompt(user, assistant, main_runtime=main_runtime))
+                _deliver(cli, generation, _request_suggestion(cli))
             except Exception as exc:
-                logger.debug("Next-prompt delivery failed: %s", exc, exc_info=True)
+                logger.debug("Next-prompt suggestion failed: %s", exc, exc_info=True)
 
         _spawn(work)
     except Exception as exc:

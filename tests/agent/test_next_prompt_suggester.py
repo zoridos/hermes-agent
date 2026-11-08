@@ -61,3 +61,15 @@ def test_failure_logs_at_debug_and_shows_nothing(caplog):
     with patch.object(nps, "call_llm", side_effect=TimeoutError("slow")), caplog.at_level("DEBUG"):
         assert nps.generate_next_prompt("hi", "hello") is None
     assert not [r for r in caplog.records if r.levelname in ("WARNING", "ERROR")]
+
+
+def test_last_exchange_uses_only_the_latest_assistant_message():
+    history = [
+        {"role": "user", "content": "q1"}, {"role": "assistant", "content": "old reply"},
+        {"role": "user", "content": "q2"}, {"role": "assistant", "content": "new reply"},
+    ]
+    assert nps.last_exchange(history) == ("q2", "new reply")
+    # The latest assistant message is tool-call-only: nothing to follow up on, never the older reply.
+    history[-1] = {"role": "assistant", "content": "", "tool_calls": [{}]}
+    assert nps.last_exchange(history) == ("q2", "")
+    assert nps.last_exchange([]) == ("", "")
