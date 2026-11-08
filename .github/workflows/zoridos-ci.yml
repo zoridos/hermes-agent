@@ -1,0 +1,84 @@
+name: zoridos-ci
+
+# Fork-only check for zoridos/hermes-agent. zmerge requires a check named `ci`,
+# so the single job below is named exactly that. It runs on GitHub-hosted
+# runners (upstream's workflows use Blacksmith, which the fork does not have).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zoridos-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
+        with:
+          fetch-depth: 0 # diff against the PR base / the pre-push tip
+
+      - name: Set up locked Python and test dependencies
+        # Same provisioning as upstream's tests.yml (pm/lock.json + uv.lock).
+        uses: ./.github/actions/setup-pm
+        with:
+          extras: '["all", "anthropic", "bedrock", "mistral", "fal", "modal", "daytona", "parallel-web", "keychain"]'
+          test-environment: 'true'
+          prune-python-cache: true
+
+      - name: Install ruff (pinned by scripts/code_health)
+        run: python -m scripts.ci.python_packages "$(python -m scripts.code_health --print-pins)"
+
+      - name: Ruff on changed Python files
+        # Upstream's ruff config (ruff.toml). --force-exclude keeps the config's
+        # `exclude` honoured for files named explicitly on the command line.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = pull_request ]; then
+            base=$(git merge-base "$BASE_SHA" HEAD)
+          elif git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+            base=$BEFORE_SHA
+          else
+            base=$(git rev-parse HEAD~1 2>/dev/null || git hash-object -t tree /dev/null)
+          fi
+          mapfile -d '' files < <(git diff --name-only -z --diff-filter=d "$base" HEAD -- '*.py' '*.pyi')
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No Python files changed since $base; nothing to lint."
+            exit 0
+          fi
+          printf 'ruff: %s\n' "${files[@]}"
+          ruff check --force-exclude "${files[@]}"
+
+      - name: Run tests
+        # All of tests/hermes_cli/, plus the completion / autosuggest / keybinding
+        # / next-prompt tests wherever they live under tests/. Globs match
+        # nothing until those files exist, which is fine.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob globstar
+          declare -A seen=()
+          extra=()
+          for f in tests/**/test_*completion*.py tests/**/*autosuggest*.py \
+                   tests/**/*keybind*.py tests/**/test_next_prompt*.py; do
+            case "$f" in tests/hermes_cli/*) continue ;; esac
+            [ -z "${seen[$f]:-}" ] && { seen[$f]=1; extra+=("$f"); }
+          done
+          scripts/run_tests.sh tests/hermes_cli/ "${extra[@]}"
+        env:
+          HERMES_TEST_FILE_TIMEOUT: 600
+          OPENROUTER_API_KEY: ""
+          OPENAI_API_KEY: ""
+          NOUS_API_KEY: ""
