@@ -42,20 +42,21 @@ def _cli(loop=None, db=None):
 
 
 def _run_background(monkeypatch, cli, fake_call_llm):
-    done = threading.Event()
-    real_generate = nps.generate_next_prompt
+    """Run the hook with the real thread spawner and join the worker, so delivery has been queued on return."""
+    threads = []
 
-    def generate(*a, **kw):
-        try:
-            return real_generate(*a, **kw)
-        finally:
-            done.set()
+    def spawn(fn):
+        thread = threading.Thread(target=fn)
+        threads.append(thread)
+        thread.start()
 
     monkeypatch.setattr(next_prompt_suggester, "call_llm", fake_call_llm)
-    monkeypatch.setattr(nps, "generate_next_prompt", generate)
     monkeypatch.setattr(nps, "_setting_enabled", lambda: True)
+    monkeypatch.setattr(nps, "_spawn", spawn)
     nps.maybe_suggest_next_prompt(cli)
-    assert done.wait(5)
+    for thread in threads:
+        thread.join(5)
+        assert not thread.is_alive()
 
 
 def _resp(text="commit that"):
