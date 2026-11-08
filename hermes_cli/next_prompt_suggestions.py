@@ -9,6 +9,7 @@ from typing import Any, Callable, Optional
 
 from prompt_toolkit.auto_suggest import Suggestion
 
+from agent.aux_accounting import set_accounting_context
 from agent.next_prompt_suggester import generate_next_prompt
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,9 @@ def pending_suggestion(cli: Any) -> Optional[str]:
 def clear_suggestion(cli: Any) -> None:
     """Drop the pending suggestion and orphan any in-flight call (submit / new turn)."""
     state = _state(cli)
+    buf = _buffer(cli)
+    if buf is not None and state.text and buf.suggestion is not None and buf.suggestion.text == state.text:
+        buf.suggestion = None
     state.text = None
     state.generation += 1
 
@@ -66,26 +70,47 @@ def _idle_and_empty(cli: Any) -> bool:
 
 
 def _last_exchange(history: list) -> tuple[str, str]:
+    """(user, assistant) text of the latest assistant message and the user message before it;
+    empty when that latest assistant message carries no text (never reaches back to an older reply)."""
     from agent.message_content import flatten_message_text
-    assistant = user = ""
-    for msg in reversed(history or []):
-        role = msg.get("role")
-        if role == "assistant" and not assistant and not msg.get("tool_calls"):
-            assistant = flatten_message_text(msg.get("content"))
-        elif role == "user" and assistant:
-            user = flatten_message_text(msg.get("content"))
-            break
+    messages = list(history or [])
+    idx = next((i for i in range(len(messages) - 1, -1, -1) if messages[i].get("role") == "assistant"), None)
+    if idx is None:
+        return "", ""
+    assistant = flatten_message_text(messages[idx].get("content"))
+    user = next((flatten_message_text(m.get("content")) for m in reversed(messages[:idx])
+                 if m.get("role") == "user"), "")
     return user, assistant
 
 
-def _deliver(cli: Any, generation: int, text: Optional[str]) -> None:
+def _apply(cli: Any, generation: int, text: str) -> None:
+    """Runs on the UI thread: the generation and idle/empty checks and the buffer write are one step,
+    so a keystroke cannot land between them."""
     state = _state(cli)
-    if not text or state.generation != generation or not _idle_and_empty(cli):
+    if state.generation != generation or not _idle_and_empty(cli):
         return
     state.text = text
-    buf = _buffer(cli)
-    buf.suggestion = Suggestion(text)
+    _buffer(cli).suggestion = Suggestion(text)
     cli._app.invalidate()
+
+
+def _deliver(cli: Any, generation: int, text: Optional[str]) -> None:
+    """Hand a worker-thread result to the app loop (inline when there is none, e.g. before the app runs)."""
+    if not text:
+        return
+    loop = getattr(getattr(cli, "_app", None), "loop", None)
+    if loop is not None:
+        loop.call_soon_threadsafe(lambda: _apply(cli, generation, text))
+    else:
+        _apply(cli, generation, text)
+
+
+def _runtime_snapshot(cli: Any) -> dict:
+    """The live session route, taken on the owning thread (like /btw and the titler): launch and
+    ``/model`` overrides live on the agent, not in config.yaml."""
+    agent = getattr(cli, "agent", None)
+    keys = ("model", "provider", "base_url", "api_key", "api_mode", "session_id")
+    return {k: getattr(agent, k, None) or getattr(cli, k, None) for k in keys}
 
 
 def maybe_suggest_next_prompt(cli: Any) -> None:
@@ -102,9 +127,15 @@ def maybe_suggest_next_prompt(cli: Any) -> None:
         state.generation += 1
         generation = state.generation
 
+        main_runtime = _runtime_snapshot(cli)
+        session_db = getattr(getattr(cli, "agent", None), "_session_db", None) or getattr(cli, "_session_db", None)
+        session_id = main_runtime["session_id"]
+
         def work() -> None:
             try:
-                _deliver(cli, generation, generate_next_prompt(user, assistant))
+                # The worker starts outside any turn, so republish the owning session's accounting handles.
+                set_accounting_context(session_db, session_id)
+                _deliver(cli, generation, generate_next_prompt(user, assistant, main_runtime=main_runtime))
             except Exception as exc:
                 logger.debug("Next-prompt delivery failed: %s", exc, exc_info=True)
 

@@ -138,5 +138,7 @@ def test_clear_removes_pending_and_visible_ghost(run_sync):
     cli = _cli()
     with _enable():
         nps.maybe_suggest_next_prompt(cli)
+    assert cli._buf.suggestion is not None
     nps.clear_suggestion(cli)
     assert nps.pending_suggestion(cli) is None
+    assert cli._buf.suggestion is None
