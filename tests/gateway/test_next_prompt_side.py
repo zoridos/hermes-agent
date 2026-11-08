@@ -70,11 +70,17 @@ def test_none_answer_is_empty_text_and_failure_logs_at_debug(db, monkeypatch, ca
 
 
 class _Verb:
-    """Drive the real handler with admission and the detached thread stubbed out."""
+    """Drive the real handler with admission and the detached thread stubbed out.
 
-    def __init__(self, monkeypatch, enabled, db):
+    ``saved`` is the toggle frozen in the session's saved config; ``current`` is what the owning
+    profile's config.yaml says now."""
+
+    def __init__(self, monkeypatch, tmp_path, db, *, saved, current, bypass=False):
         self.spawned = []
-        policy = SimpleNamespace(config=lambda authority: {"display": {"next_prompt_suggestions": enabled}})
+        (tmp_path / "config.yaml").write_text(f"display:\n  next_prompt_suggestions: {str(current).lower()}\n")
+        policy = SimpleNamespace(config=lambda authority: {"display": {"next_prompt_suggestions": saved}},
+                                 ignore_user_config=bypass)
+        db.db_path = tmp_path / "state.db"
         self.authority = SimpleNamespace(db=db, agent=lambda ref: None)
         self.connection = SimpleNamespace(authority=self.authority)
         monkeypatch.setattr(session_tui_side, "_admit", lambda *a, **k: (None, policy, "", "np_1"))
@@ -86,18 +92,33 @@ class _Verb:
         return asyncio.run(session_tui_side.next_prompt(self.connection, ref, {"session_id": "sess-1"}))
 
 
-def test_verb_refuses_when_the_setting_is_off_and_starts_nothing(db, monkeypatch):
-    verb = _Verb(monkeypatch, enabled=False, db=db)
+def test_verb_refuses_when_the_setting_is_off_and_starts_nothing(db, monkeypatch, tmp_path):
+    verb = _Verb(monkeypatch, tmp_path, db, saved=False, current=False)
     with pytest.raises(RuntimeStoreError, match="permission_denied"):
         verb.call()
     assert verb.spawned == []
 
 
-def test_verb_replies_with_a_task_id_and_publishes_next_prompt_complete(db, monkeypatch):
-    verb = _Verb(monkeypatch, enabled=True, db=db)
+def test_verb_replies_with_a_task_id_and_publishes_next_prompt_complete(db, monkeypatch, tmp_path):
+    verb = _Verb(monkeypatch, tmp_path, db, saved=True, current=True)
     assert verb.call() == {"task_id": "np_1"}
     (args, _kwargs), = verb.spawned
     assert args[2:4] == ("np_1", "next_prompt.complete")
+
+
+def test_an_existing_session_follows_the_current_toggle_not_its_saved_one(db, monkeypatch, tmp_path):
+    """The toggle was off when the conversation was created and on now (also after --resume)."""
+    verb = _Verb(monkeypatch, tmp_path, db, saved=False, current=True)
+    assert verb.call() == {"task_id": "np_1"}
+    off_now = _Verb(monkeypatch, tmp_path, db, saved=True, current=False)
+    with pytest.raises(RuntimeStoreError, match="permission_denied"):
+        off_now.call()
+
+
+def test_a_bypass_session_never_reads_the_profile_and_uses_its_saved_toggle(db, monkeypatch, tmp_path):
+    assert _Verb(monkeypatch, tmp_path, db, saved=True, current=False, bypass=True).call() == {"task_id": "np_1"}
+    with pytest.raises(RuntimeStoreError, match="permission_denied"):
+        _Verb(monkeypatch, tmp_path, db, saved=False, current=True, bypass=True).call()
 
 
 def test_the_verb_is_registered_with_the_other_side_verbs():

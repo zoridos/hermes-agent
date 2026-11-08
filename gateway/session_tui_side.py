@@ -240,6 +240,16 @@ def suggest_next_prompt(authority, ref, history, main_runtime):
     return suggestion or ''
 
 
+def _suggestions_enabled(authority, policy):
+    """``display.next_prompt_suggestions`` from the owning profile's CURRENT config.yaml: a presentation
+    toggle must not stay frozen at what it was when the conversation was created (it is in neither the
+    followed sections nor the refresh). The path comes from the authority's own store, so no ambient
+    profile is read. A bypass session never reads the profile: its own saved section decides."""
+    from gateway.session_policy import profile_config
+    config = policy.config(authority) if policy.ignore_user_config else profile_config(authority)
+    return bool((config.get('display') or {}).get('next_prompt_suggestions'))
+
+
 async def next_prompt(connection, ref, params):
     """``display.next_prompt_suggestions``: one auxiliary call guessing the user's next prompt from the
     session's last exchange. Detached like ``/btw``: never an admission, a FIFO turn, a row in the
@@ -247,8 +257,7 @@ async def next_prompt(connection, ref, params):
     arrives as ``next_prompt.complete`` ``{task_id, text}``; ``text`` is empty when there is none."""
     _live, policy, _text, task_id = _admit(connection, ref, params, 'np', required=None)
     authority = connection.authority
-    display = policy.config(authority).get('display') or {}
-    if not display.get('next_prompt_suggestions'):
+    if not _suggestions_enabled(authority, policy):
         raise RuntimeStoreError('permission_denied')
     agent = authority.agent(ref)
     snapshot = list(getattr(agent, '_session_messages', None) or [])
