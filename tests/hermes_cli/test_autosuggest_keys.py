@@ -90,6 +90,14 @@ def test_connection_overlay_keeps_right(composer, monkeypatch):
     assert composer._connection_state["selected"] == 1
 
 
+@pytest.mark.parametrize("prompt", ["sudo", "secret", "connection"])
+@pytest.mark.parametrize("key", [Keys.Right, Keys.ControlE, Keys.ControlF])
+def test_secret_prompts_do_not_accept_history(composer, prompt, key):
+    state = {"phase": "form", "fields": [{"secret": True}], "field_index": 0}
+    setattr(composer, f"_{prompt}_state", state)
+    assert _press(composer, [key]) == ("okay let", 8)
+
+
 def test_vi_navigation_right_keeps_cursor_movement(composer):
     assert _press(composer, [Keys.Right], cursor=1, mode=EditingMode.VI,
                   vi_input=InputMode.NAVIGATION) == ("okay let", 2)

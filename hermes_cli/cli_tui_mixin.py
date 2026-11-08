@@ -21,6 +21,7 @@ from hermes_cli.commands_completion import SlashCommandAutoSuggest, cli_slash_co
 from pathlib import Path
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.key_binding import ConditionalKeyBindings, KeyBindings
 from prompt_toolkit.key_binding.bindings.auto_suggest import load_auto_suggest_bindings
 from prompt_toolkit.layout import (
     ConditionalContainer,
@@ -1897,7 +1898,12 @@ class CLITuiMixin:
         from prompt_toolkit.keys import Keys
         # Application omits PromptSession's suggestion keys. Seed them before our modal
         # overrides so overlays retain priority; Application's default vi bindings run first.
-        kb = load_auto_suggest_bindings()
+        kb = KeyBindings()
+        # Masked prompts share the history-backed buffer; never append ghost text to a secret.
+        kb.bindings.extend(ConditionalKeyBindings(
+            load_auto_suggest_bindings(), filter=Condition(
+                lambda: not self._sudo_state and not self._secret_state and not self._connection_state
+            )).bindings)
         _multiline_shortcuts_enabled = _cli_multiline_shortcuts_enabled(self.config or CLI_CONFIG)
         self._tui_multiline_shortcuts = _multiline_shortcuts_enabled
 
