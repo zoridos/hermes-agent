@@ -72,7 +72,9 @@ def test_dynamic_or_bulk_environment_access_keeps_warning(tmp_path, text):
     assert any(f.severity == "high" for f in guard.scan_file(path))
 
 
-@pytest.mark.parametrize("old_version", ["skills-guard-v10", "skills-guard-v11"])
+@pytest.mark.parametrize(
+    "old_version", ["skills-guard-v10", "skills-guard-v11", "skills-guard-v12"]
+)
 def test_old_dangerous_cache_rescanned(tmp_path, old_version):
     skill = tmp_path / "skill"
     skill.mkdir()
@@ -168,3 +170,20 @@ def test_independent_secret_transfer_rules_still_block(tmp_path, text):
     result = guard.scan_skill(tmp_path, source="anthropics/skills")
     assert result.verdict == "dangerous"
     assert guard.should_allow_install(result, force=True)[0] is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'os.environ["LD_PRELOAD"] \\\n = "/tmp/x.so"',
+        '(os.environ["LD_PRELOAD"]\n) = "/tmp/x.so"',
+        '(\n os.environ["PYTHONPATH"]\n) = "/tmp"',
+        'with context() as os.environ["PATH"]:',
+        'with (context()\n) as os.environ["HTTPS_PROXY"]:',
+    ],
+)
+def test_continued_or_context_manager_mutations_remain_blocked(tmp_path, text):
+    (tmp_path / "SKILL.md").write_text("```python\n" + text + "\n```")
+    result = guard.scan_skill(tmp_path, source="community")
+    assert result.verdict == "caution"
+    assert guard.should_allow_install(result)[0] is False

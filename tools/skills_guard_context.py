@@ -8,7 +8,7 @@ _SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL", re.IGNORECASE
 # Conservatively retain warnings for mutations, including tuple/parenthesized
 # targets and loop targets. False negatives here must not turn writes into reads.
 _MUTATION_TAIL = re.compile(r"=(?!=)|\bin\b")
-_MUTATION_PREFIX = re.compile(r"\b(?:del|for)\b")
+_MUTATION_PREFIX = re.compile(r"\b(?:del|for|as)\b")
 # Complete, deliberately low-entropy instructional values only. Provider token-shape
 # rules still run independently; adding a real-looking suffix does not qualify.
 _PLACEHOLDER = re.compile(
