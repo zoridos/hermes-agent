@@ -6,7 +6,7 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.layout.controls import BufferControl
 from prompt_toolkit.layout.processors import TransformationInput
 
-from hermes_cli.cli_tui_mixin import _PlaceholderProcessor
+from hermes_cli.cli_tui_placeholder import _PlaceholderProcessor
 
 PROMPT = [("", "❯ ")]
 
