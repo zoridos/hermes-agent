@@ -39,6 +39,7 @@ _PROMPT = (
 
 # A rambling answer is a model slip (usually the assistant's voice), better shown as nothing.
 MAX_SUGGESTION_WORDS = 20
+MAX_SUGGESTION_CHARS = 120  # covers languages written without spaces
 
 _QUOTE_PAIRS = {'"': '"', "'": "'", "`": "`", "“": "”", "‘": "’"}
 
@@ -51,7 +52,7 @@ def clean_suggestion(raw: Any) -> Optional[str]:
         line = line[1:-1].strip()
     if not line or line.rstrip(".").upper() == "NONE":
         return None
-    if len(line.split()) > MAX_SUGGESTION_WORDS:
+    if len(line.split()) > MAX_SUGGESTION_WORDS or len(line) > MAX_SUGGESTION_CHARS:
         return None
     return line
 

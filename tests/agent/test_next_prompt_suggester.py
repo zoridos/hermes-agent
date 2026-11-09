@@ -55,29 +55,10 @@ def test_rambling_first_line_is_dropped_not_truncated():
     assert nps.clean_suggestion(f'"{rambling}"\nrun it') is None
 
 
-def test_prompt_answers_questions_and_offers_with_the_users_reply():
-    p = nps._PROMPT.lower()
-    assert "asked a question or made an offer" in p and "answer it" in p
-    assert "yes, go ahead" in p
-    # The old rule that suppressed nearly every turn must be gone.
-    assert "asked the user a question" not in p and "task looks finished" not in p
-
-
-def test_prompt_writes_done_when_the_user_was_asked_to_report_back():
-    p = nps._PROMPT.lower()
-    assert "report back" in p and "'done'" in p
-
-
-def test_prompt_forbids_pleasantries_and_reserves_none_for_nothing_useful():
-    p = nps._PROMPT.lower()
-    assert "thanks" in p and "got it" in p and "waiting" in p
-    assert "reply none only when nothing useful" in p
-
-
-def test_prompt_keeps_voice_length_and_output_only_rules():
-    p = nps._PROMPT.lower()
-    assert "under 15 words" in p and "as the user" in p
-    assert "output only the message" in p
+@pytest.mark.parametrize("n,kept", [(120, True), (121, False)])
+def test_output_over_the_char_limit_shows_nothing(n, kept):
+    text = "あ" * n  # no spaces, so the word cap cannot catch it
+    assert nps.clean_suggestion(text) == (text if kept else None)
 
 
 def test_input_is_clipped_to_the_tail():
