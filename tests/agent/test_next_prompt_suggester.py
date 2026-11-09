@@ -1,5 +1,6 @@
 """Behaviour contract of the next-prompt suggester: what it asks the model and what it keeps."""
 
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -150,9 +151,8 @@ def test_clarify_from_an_earlier_turn_is_not_included():
 
 
 def test_clarify_block_is_clipped_and_assistant_tail_survives():
-    big = '{"responses": [' + ",".join(
-        '{"question": "%s", "status": "answered", "user_response": "%s"}' % ("q" * 5000, "a" * 5000)
-        for _ in range(10)) + "]}"
+    big = json.dumps({"responses": [
+        {"question": "q" * 5000, "status": "answered", "user_response": "a" * 5000} for _ in range(10)]})
     history = _clarify_history({"role": "tool", "tool_name": "clarify", "tool_call_id": "c1", "content": big})
     history[-1]["content"] = "x" * 50_000 + "THE END"
     user, assistant = nps.last_exchange(history)
