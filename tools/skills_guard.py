@@ -8,7 +8,6 @@ agent-config files surface only the low *_ref finding — static regexes cannot 
 destination; future coverage belongs as a fourth "mechanical" tier next to agent_config_mod_shell."""
 
 import re
-from collections import Counter
 import fnmatch
 import hashlib
 import json
@@ -21,7 +20,7 @@ from typing import List, Tuple
 from tools.skills_guard_context import literal_context
 
 
-SCANNER_VERSION = "skills-guard-v13"
+SCANNER_VERSION = "skills-guard-v14"
 
 # NVIDIA-verified skills each ship a signed `skill.oms.sig` + governance `skill-card.md`.
 TRUSTED_REPOS = {
@@ -712,7 +711,6 @@ def scan_file(file_path: Path, rel_path: str = "") -> list[Finding]:
     docstring_lines = _compute_docstring_lines(lines)  # so code patterns don't fire on prose
     traversal_lines = _mask_prose_link_destinations(lines) if file_path.suffix.lower() == ".md" else lines
     suffix, owners = file_path.suffix.lower(), _statement_owners(lines)  # per-file context for the demotion
-    statement_lengths = Counter(owners)
     for pattern, pid, severity, category, description in _COMPILED_THREAT_PATTERNS:
         for i, line in enumerate(lines, start=1):
             scan_line = traversal_lines[i - 1] if pid in _PATH_TRAVERSAL_PATTERN_IDS else line
@@ -720,12 +718,9 @@ def scan_file(file_path: Path, rel_path: str = "") -> list[Finding]:
                 text = line.strip()
                 line_severity, line_description = _demote_inert_path_reference(
                     pid, severity, description, line, lines[owners[i - 1]], suffix)
-                # Continued statements can write through a subscript on a different line.
-                # Keep the original env warning rather than infer read intent across lines.
-                if pid != "python_os_environ" or statement_lengths[owners[i - 1]] == 1:
-                    line_severity, line_description = literal_context(
-                        pid, line, line_severity, line_description,
-                        tuple(m.group(0) for m in pattern.finditer(line)) if pid == "hardcoded_secret" else ())
+                line_severity, line_description = literal_context(
+                    pid, line, line_severity, line_description,
+                    tuple(m.group(0) for m in pattern.finditer(line)) if pid == "hardcoded_secret" else ())
                 findings.append(Finding(pid, line_severity, category, rel_path, i,
                                         text if len(text) <= 120 else text[:117] + "...", line_description))
     for i, line in enumerate(lines, start=1):

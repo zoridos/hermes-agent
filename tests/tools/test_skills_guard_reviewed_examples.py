@@ -26,7 +26,7 @@ from tools import skills_guard as guard
             "python_os_environ",
             "low",
         ),
-        ('auth_token=os.environ["GITHUB_TOKEN"]', "python_os_environ", "medium"),
+        ('auth_token=os.environ["GITHUB_TOKEN"]', "python_os_environ", "high"),
     ],
 )
 def test_reviewed_literal_examples(tmp_path, text, pattern, severity):
@@ -73,7 +73,8 @@ def test_dynamic_or_bulk_environment_access_keeps_warning(tmp_path, text):
 
 
 @pytest.mark.parametrize(
-    "old_version", ["skills-guard-v10", "skills-guard-v11", "skills-guard-v12"]
+    "old_version",
+    ["skills-guard-v10", "skills-guard-v11", "skills-guard-v12", "skills-guard-v13"],
 )
 def test_old_dangerous_cache_rescanned(tmp_path, old_version):
     skill = tmp_path / "skill"
@@ -183,6 +184,58 @@ def test_independent_secret_transfer_rules_still_block(tmp_path, text):
     ],
 )
 def test_continued_or_context_manager_mutations_remain_blocked(tmp_path, text):
+    (tmp_path / "SKILL.md").write_text("```python\n" + text + "\n```")
+    result = guard.scan_skill(tmp_path, source="community")
+    assert result.verdict == "caution"
+    assert guard.should_allow_install(result)[0] is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '(os.environ["LD_PRELOAD"]  # )\n) = "/tmp/x.so"',
+        '(  # )\nos.environ["LD_PRELOAD"]\n) = "/tmp/x.so"',
+        'key = os.environ["GITHUB_TOKEN"]',
+    ],
+)
+def test_uncertain_context_retains_env_warning(tmp_path, text):
+    (tmp_path / "SKILL.md").write_text("```python\n" + text + "\n```")
+    result = guard.scan_skill(tmp_path, source="community")
+    assert result.verdict == "caution"
+    assert guard.should_allow_install(result)[0] is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'path = Path(os.environ["GITHUB_TOKEN"])',
+        'path = Path(os.environ["API_KEY_HOME"])',
+        "path = Path(os.environ[name])",
+        'path = Path(os.environ["CONFIG_DIR"]); print(os.environ)',
+        'Path(os.environ["CONFIG_DIR"])',
+    ],
+)
+def test_only_complete_nonsecret_path_assignment_qualifies(tmp_path, text):
+    (tmp_path / "example.py").write_text(text)
+    assert any(f.severity == "high" for f in guard.scan_file(tmp_path / "example.py"))
+
+
+def test_generic_nonsecret_directory_assignment_is_informational(tmp_path):
+    path = tmp_path / "example.py"
+    path.write_text('directory = Path(os.environ["APP_CONFIG_DIR"])')
+    assert [(f.pattern_id, f.severity) for f in guard.scan_file(path)] == [
+        ("python_os_environ", "low")
+    ]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '(state["escaped\\" )"], os.environ["LD_PRELOAD"]\n) = (None, "/tmp/x.so")',
+        '(state["escaped\\" )"],\n os.environ["LD_PRELOAD"]\n) = (None, "/tmp/x.so")',
+    ],
+)
+def test_escaped_quotes_cannot_hide_environment_write(tmp_path, text):
     (tmp_path / "SKILL.md").write_text("```python\n" + text + "\n```")
     result = guard.scan_skill(tmp_path, source="community")
     assert result.verdict == "caution"

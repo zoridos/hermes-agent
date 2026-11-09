@@ -3,12 +3,14 @@
 import re
 
 
-_NAMED_ENV = re.compile(r'os\.environ\s*\[\s*["\']([A-Za-z_][A-Za-z0-9_]*)["\']\s*\]')
+# A complete assignment to a plain variable cannot also be an environment write
+# target continued on another line. Keep all other forms at their original severity.
+_CONFIG_PATH_READ = re.compile(
+    r"""\s*[A-Za-z_]\w*\s*=\s*Path\s*\(\s*os\.environ\s*\[
+        \s*(?P<quote>["'])(?P<name>[A-Za-z_]\w*)(?P=quote)\s*\]\s*\)\s*""",
+    re.VERBOSE,
+)
 _SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL", re.IGNORECASE)
-# Conservatively retain warnings for mutations, including tuple/parenthesized
-# targets and loop targets. False negatives here must not turn writes into reads.
-_MUTATION_TAIL = re.compile(r"=(?!=)|\bin\b")
-_MUTATION_PREFIX = re.compile(r"\b(?:del|for|as)\b")
 # Complete, deliberately low-entropy instructional values only. Provider token-shape
 # rules still run independently; adding a real-looking suffix does not qualify.
 _PLACEHOLDER = re.compile(
@@ -24,26 +26,18 @@ def literal_context(
     description: str,
     secret_matches: tuple[str, ...] = (),
 ) -> tuple[str, str]:
-    """Retain informational findings for explicit placeholders and single-name reads.
+    """Retain notes for explicit placeholders and standalone non-secret path reads.
 
-    Bulk/dynamic env access remains high. A literal read alone is not evidence of
-    transfer: separate exfiltration rules continue scanning the complete line.
+    General and secret-bearing environment reads retain the original warning;
+    ambiguous statement boundaries never authorize a demotion.
     """
     if pid == "python_os_environ":
-        reads = list(_NAMED_ENV.finditer(line))
-        if (
-            reads
-            and "os.environ" not in _NAMED_ENV.sub("", line)
-            and not any(
-                _MUTATION_TAIL.search(line[m.end() :])
-                or _MUTATION_PREFIX.search(line[: m.start()])
-                for m in reads
+        match = _CONFIG_PATH_READ.fullmatch(line)
+        if match and not _SECRET_NAME.search(match["name"]):
+            return (
+                "low",
+                description + " (standalone non-secret path lookup; informational)",
             )
-        ):
-            severity = (
-                "medium" if any(_SECRET_NAME.search(m[1]) for m in reads) else "low"
-            )
-            return severity, description + " (literal named lookup; informational)"
     if pid == "hardcoded_secret":
         # The scanner regex owns credential boundaries, including unterminated
         # literals; reparsing with a closing-quote requirement can hide a second key.
