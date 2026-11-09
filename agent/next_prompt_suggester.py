@@ -88,7 +88,10 @@ def _clarify_pairs(result_messages: list, call_names: dict[str, str]) -> list[st
                 if r["status"] != "answered":
                     continue
                 question = str(r["question"]).strip()[-MAX_CLARIFY_FIELD_CHARS:]
-                answer = str(r["user_response"]).strip()[-MAX_CLARIFY_FIELD_CHARS:]
+                answer = r["user_response"]
+                if isinstance(answer, list):  # multi-select
+                    answer = ", ".join(str(a).strip() for a in answer)
+                answer = str(answer).strip()[-MAX_CLARIFY_FIELD_CHARS:]
                 if question and answer:
                     pairs.append(f"Asked: {question} / User answered: {answer}")
         except (ValueError, TypeError, KeyError, AttributeError):
@@ -122,10 +125,10 @@ def last_exchange(history: list) -> tuple[str, str]:
     user_idx = next((i for i in range(idx - 1, -1, -1) if messages[i].get("role") == "user"), None)
     if user_idx is None:
         return "", assistant
-    user = flatten_message_text(messages[user_idx].get("content"))
+    user = flatten_message_text(messages[user_idx].get("content")).strip()[-MAX_USER_CHARS:]
     pairs = _clarify_pairs(messages[user_idx + 1:idx], _tool_names_by_call_id(messages[user_idx + 1:idx]))
     if pairs:
-        user = f"{user.strip()[-MAX_USER_CHARS:]}\n\n{_clip_pairs(pairs)}"
+        user = f"{user}\n\n{_clip_pairs(pairs)}"
     return user, assistant
 
 

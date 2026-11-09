@@ -161,3 +161,16 @@ def test_clarify_block_is_clipped_and_assistant_tail_survives():
         nps.generate_next_prompt(user, assistant)
     sent = "".join(msg["content"] for msg in m.call_args.kwargs["messages"])
     assert len(sent) < 6_000 and sent.endswith("THE END")
+
+
+def test_long_user_message_without_clarify_stays_within_the_user_budget():
+    history = [{"role": "user", "content": "u" * 5000}, {"role": "assistant", "content": "done"}]
+    user, _ = nps.last_exchange(history)
+    assert len(user) == nps.MAX_USER_CHARS
+
+
+def test_multi_select_answer_is_joined_not_repr():
+    content = json.dumps({"responses": [
+        {"question": "Which?", "status": "answered", "user_response": ["alpha", "beta"]}]})
+    history = _clarify_history({"role": "tool", "tool_name": "clarify", "tool_call_id": "c1", "content": content})
+    assert nps.last_exchange(history)[0].endswith("Asked: Which? / User answered: alpha, beta")
