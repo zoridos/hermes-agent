@@ -90,6 +90,25 @@ def _term_rows() -> int:
 
 
 
+class _PlaceholderProcessor(Processor):
+    """Render grayed-out placeholder text inside the input when empty."""
+    def __init__(self, get_text):
+        self._get_text = get_text
+
+    def apply_transformation(self, ti):
+        if not ti.document.text and ti.lineno == 0:
+            # A parked next-prompt suggestion is already appended as ghost text; the example
+            # placeholder would render glued onto it.
+            suggestion = ti.buffer_control.buffer.suggestion
+            if suggestion is not None and suggestion.text:
+                return Transformation(fragments=ti.fragments)
+            text = self._get_text()
+            if text:
+                # Append after existing fragments (preserves the ❯ prompt).
+                return Transformation(fragments=ti.fragments + [('class:placeholder', text)])
+        return Transformation(fragments=ti.fragments)
+
+
 class CLITuiMixin:
     """prompt_toolkit TUI construction, key-binding handlers, and overlay display fragments."""
 
@@ -2251,19 +2270,6 @@ class CLITuiMixin:
                              or bool(cli_ref._secret_state)
                              or (bool(cli_ref._connection_state)
                                  and cli_ref._connection_active_field_is_secret()))))
-
-        class _PlaceholderProcessor(Processor):
-            """Render grayed-out placeholder text inside the input when empty."""
-            def __init__(self, get_text):
-                self._get_text = get_text
-
-            def apply_transformation(self, ti):
-                if not ti.document.text and ti.lineno == 0:
-                    text = self._get_text()
-                    if text:
-                        # Append after existing fragments (preserves the ❯ prompt).
-                        return Transformation(fragments=ti.fragments + [('class:placeholder', text)])
-                return Transformation(fragments=ti.fragments)
 
         input_area.control.input_processors.append(_PlaceholderProcessor(self._tui_placeholder_text))
         return input_area
