@@ -104,9 +104,14 @@ class TestSet:
         out = _exec()["output"]
         assert "name:default ws:ws://127.0.0.1:47000/" in out and ENDPOINT not in out
 
-    def test_other_browser_tools_unaffected(self):
-        from tools.browser_session_cdp import get_cdp_override_raw
-        assert get_cdp_override_raw() == ""  # the endpoint is not a cdp_url override
+    def test_other_browser_tools_unaffected(self, monkeypatch):
+        """The endpoint is not a cdp_url override: every other browser tool's CDP lookup stays empty."""
+        import tools.browser_session_cdp as cdp
+        monkeypatch.undo()  # drop the autouse stubs: read the real lookup against the config above
+        monkeypatch.setattr(bs_cloud, "browser_section", lambda: {"live_chrome": True, "live_chrome_cdp_url": ENDPOINT})
+        monkeypatch.setattr(cdp, "live_cdp_override", lambda: "")
+        monkeypatch.setattr(cdp, "env_cdp_url", lambda: "")
+        assert cdp.get_cdp_override_raw() == ""
 
     def test_no_allow_hint(self, tmp_path, monkeypatch):
         assert "Allow" not in live.live_chrome_timeout_hint(True, endpoint=ENDPOINT)
@@ -198,6 +203,30 @@ class TestValidation:
         err = bu_cli._route_backend({}, "", "t1", False)
         assert "127.0.0.1:1" in err and "not reachable" in err and "start" in err
         assert "zchrome" not in err and "Allow" not in err
+
+    def test_probe_does_not_follow_redirects(self):
+        hits = []
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                hits.append(self.path)
+                if self.path == "/json/version":
+                    self.send_response(302)
+                    self.send_header("Location", "/elsewhere")
+                else:
+                    self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            assert "not reachable" in live.endpoint_unreachable(f"http://127.0.0.1:{srv.server_port}")
+        finally:
+            srv.shutdown()
+        assert hits == ["/json/version"]
 
     def test_reachable_endpoint_passes(self):
         class H(http.server.BaseHTTPRequestHandler):

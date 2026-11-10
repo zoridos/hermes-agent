@@ -13,7 +13,9 @@ module keeps the harness inside four limits:
   endpoint (a dedicated agents' Chrome) through ``BU_CDP_*`` instead, and never discovers the user's own
   Chrome; no Allow popup is involved there.
 * The CDP supervisor opens no second connection (a second Allow popup): ``_attach_vault_supervisor`` and
-  ``ensure_cdp_supervisor`` only attach to an exported/override endpoint, and live mode has neither.
+  ``ensure_cdp_supervisor`` only attach to an exported/override endpoint, and discovery live mode has
+  neither. With ``browser.live_chrome_cdp_url`` the endpoint is exported and there is no popup, so the
+  supervisor attaches there normally.
 """
 
 from __future__ import annotations
@@ -154,7 +156,12 @@ def endpoint_format_error(url: str) -> Optional[str]:
 def endpoint_unreachable(url: str) -> Optional[str]:
     """None when the DevTools endpoint answers ``/json/version``, else the error for the model. Read-only."""
     try:
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # loopback: never via a proxy
+        # loopback: never via a proxy, and no redirect handler so the probe cannot leave the endpoint
+        opener = urllib.request.OpenerDirector()
+        opener.add_handler(urllib.request.HTTPHandler())
+        opener.add_handler(urllib.request.HTTPSHandler())
+        opener.add_handler(urllib.request.HTTPErrorProcessor())
+        opener.add_handler(urllib.request.HTTPDefaultErrorHandler())
         with opener.open(url.rstrip("/") + "/json/version", timeout=3):
             return None
     except (OSError, ValueError, urllib.error.URLError):
