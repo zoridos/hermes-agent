@@ -355,3 +355,48 @@ class TestNeverApproves:
         assert "click Allow" in _exec(timeout_s=5)["error"]
         assert not any("mac-approve" in " ".join(map(str, c)) for c in argvs)
         assert "browser_harness.macos" not in sys.modules
+
+
+_NAME_PROBE = 'cat > /dev/null\necho "name:${BU_NAME:-default} ws:${BU_CDP_WS:-unset}"\n'
+
+
+class TestToggleDetaches:
+    """The switch is read on every call: a daemon attached to the live Chrome must never serve a call made
+    after it is turned off, and a warm packaged daemon must never serve a live call."""
+
+    @pytest.fixture
+    def reloaded(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(bu_cli, "_reload_daemons", lambda daemons: calls.extend(daemons))
+        with bu_cli._driven_daemons_lock:
+            bu_cli._driven_daemons.clear()
+        yield calls
+        with bu_cli._driven_daemons_lock:
+            bu_cli._driven_daemons.clear()
+
+    @pytest.mark.parametrize("session", ["", "r7k2"])
+    def test_on_then_off_uses_another_daemon_and_stops_the_live_one(self, tmp_path, monkeypatch, config,
+                                                                    chrome_running, reloaded, session):
+        _cli(tmp_path, monkeypatch, _NAME_PROBE)
+        config["live_chrome"] = True
+        on = _exec(session=session)["output"]
+        live_name = f"_live_{session or 'default'}"
+        assert f"name:{live_name} ws:unset" in on
+        assert reloaded == []  # still on: nothing stopped
+
+        config["live_chrome"] = False
+        off = _exec(session=session)["output"]
+        assert f"name:{session or 'default'} ws:ws://127.0.0.1:47000/" in off
+        assert [d[-1] for d in reloaded] == [live_name]  # the live daemon was stopped
+        with bu_cli._driven_daemons_lock:
+            assert all(d[-1] != live_name for d in bu_cli._driven_daemons)
+
+    def test_off_then_on_never_reuses_the_packaged_daemon(self, tmp_path, monkeypatch, config, chrome_running,
+                                                          reloaded):
+        _cli(tmp_path, monkeypatch, _NAME_PROBE)
+        off = _exec()["output"]
+        assert "name:default ws:ws://127.0.0.1:47000/" in off
+        config["live_chrome"] = True
+        on = _exec()["output"]
+        assert "name:_live_default ws:unset" in on
+        assert reloaded == []  # the packaged daemon is left alone; it simply isn't used

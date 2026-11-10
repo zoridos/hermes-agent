@@ -354,6 +354,36 @@ def _sidecar_daemon_name(name: str) -> str:
     return f"_local_{name or 'default'}"[:64]
 
 
+def _live_daemon_name(name: str) -> str:
+    """BU_NAME of the harness daemon attached to the user's live Chrome (``browser.live_chrome``). A daemon
+    latches its browser at spawn and outlives the call, so sharing a name with the packaged/cloud route
+    would keep driving the signed-in Chrome after the switch is turned off (and the reverse). User session
+    names cannot start with ``_``."""
+    return f"_live_{name or 'default'}"[:64]
+
+
+def _name_route_daemon(env: dict, session: str, local_sidecar: bool, live_chrome: bool) -> None:
+    """Give the hybrid sidecar and the live-Chrome route their own daemon names (see the two name
+    functions above); any other route keeps the session's own BU_NAME."""
+    if local_sidecar:
+        env["BU_NAME"] = _sidecar_daemon_name(session)
+    elif live_chrome:
+        env["BU_NAME"] = _live_daemon_name(session)
+
+
+def _stop_live_daemons_if_off() -> None:
+    """``browser.live_chrome`` is a consent switch read on every call: once it reads off, stop every
+    live-Chrome daemon this process drove so nothing stays attached to the user's Chrome. The harness's
+    shutdown closes only the tab it opened, never the user's browser or tabs."""
+    if live_chrome_enabled():
+        return
+    with _driven_daemons_lock:
+        daemons = sorted(key for key in _driven_daemons if str(key[-1]).startswith("_live_"))
+        for key in daemons:
+            _driven_daemons.pop(key, None)
+    _reload_daemons(daemons)
+
+
 def _export_real_profile_note(env: dict, key: str) -> None:
     """The session layer decides real profile vs fresh browser once per key; carry its note (if it fell
     back) so the result reports the browser this call actually drives."""
@@ -840,6 +870,7 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
         return tool_error("browser-harness is missing from Hermes's Python environment. "
                           "Run `hermes update` to re-sync it.")
 
+    _stop_live_daemons_if_off()
     env = _base_subprocess_env()
     if session:
         if not _SESSION_RE.match(session):
@@ -850,11 +881,10 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
         env, session, task_id, bool(local), local_sidecar, route_key)
     if route_err:
         return tool_error(route_err)
-    if local_sidecar:
-        env["BU_NAME"] = _sidecar_daemon_name(session)
+    live_chrome = bool(env.pop(LIVE_CHROME_SENTINEL, None))
+    _name_route_daemon(env, session, local_sidecar, live_chrome)
     fit_default_socket_dir(env)  # BU_NAME is final: a deep HOME's socket would overflow sun_path
     _exec_route_is_sidecar[route_key] = local_sidecar
-    live_chrome = bool(env.pop(LIVE_CHROME_SENTINEL, None))
     local_engine = env.pop(_BOT_DESKTOP_BROWSER_SENTINEL, None)
     bot_desktop_browser = bool(local_engine)
     _exec_local_engine.set(local_engine)  # only local browsers carry the sentinel
