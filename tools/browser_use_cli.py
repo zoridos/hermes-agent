@@ -738,8 +738,9 @@ def _own_harness_daemon_until_owned(env: dict) -> Optional[bool]:
 
 
 def _live_daemon_running(env: dict) -> bool:
-    """The daemon ``env`` drives is up: its published pid is a live ``browser_harness.daemon``. A CLI run
-    against a dead daemon would start one, which on the discovery route means a new Allow popup."""
+    """Cheap pre-check: the daemon ``env`` drives published a pid that is a live ``browser_harness.daemon``,
+    so there is nothing to spawn a CLI run for otherwise. It does not prove the daemon is healthy (a hung or
+    stale one passes); ``_close_live_own_tab`` relies on ``BH_REQUIRE_EXISTING_DAEMON`` for that."""
     pid = _published_daemon_pid(env)
     if pid is None:
         return False
@@ -756,10 +757,14 @@ def _live_daemon_running(env: dict) -> bool:
 
 def _close_live_own_tab(cmd: list, env: dict) -> None:
     """Best effort: close the one tab a live daemon's own-tab step opened (never any other), so stopping
-    the daemon leaves nothing of Hermes's in the user's browser. Skipped when the daemon is already gone."""
+    the daemon leaves nothing of Hermes's in the user's browser. The harness CLI would otherwise run
+    ``ensure_daemon()`` first and could restart an unhealthy daemon (launching Chrome, opening
+    chrome://inspect or raising an Allow popup in discovery mode), so ``BH_REQUIRE_EXISTING_DAEMON=1`` makes
+    it fail instead of spawning or reconnecting (browser_harness ``require_existing_daemon``)."""
     if _live_daemon_running(env):
         with contextlib.suppress(OSError, subprocess.SubprocessError):
-            _run_cli_killing_process_group(cmd, LIVE_CLOSE_OWN_TAB_CODE, env, 10)
+            _run_cli_killing_process_group(cmd, LIVE_CLOSE_OWN_TAB_CODE,
+                                           {**env, "BH_REQUIRE_EXISTING_DAEMON": "1"}, 10)
 
 
 def _reload_daemons(daemons) -> None:  # each ``daemon_identity`` daemon, with its own dirs

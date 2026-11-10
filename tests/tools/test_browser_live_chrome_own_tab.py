@@ -194,23 +194,31 @@ class TestStopClosesTheTab:
         monkeypatch.setattr(bu_cli, "_find_cli", lambda: ["bh"])
         monkeypatch.setattr(bu_cli, "_base_subprocess_env", dict)
         monkeypatch.setattr(bu_cli, "_run_cli_killing_process_group",
-                            lambda cmd, code, env, timeout: runs.append((list(cmd), code, env["BU_NAME"])))
+                            lambda cmd, code, env, timeout: runs.append((list(cmd), code, env["BU_NAME"], env)))
         monkeypatch.setattr(bu_cli, "_live_daemon_running", lambda env: True)
         return runs
 
     def test_live_daemon_tab_closed_before_reload(self, runs):
         bu_cli._reload_daemons([("", "", "", "", "_live_r7k2")])
-        assert [(c[-1:], code, name) for c, code, name in runs] == [
+        assert [(c[-1:], code, name) for c, code, name, _env in runs] == [
             (["bh"][-1:], live.LIVE_CLOSE_OWN_TAB_CODE, "_live_r7k2"), (["--reload"], "", "_live_r7k2")]
+
+    def test_close_run_never_restarts_the_daemon(self, runs):
+        """Without BH_REQUIRE_EXISTING_DAEMON the harness CLI runs ensure_daemon() first, which can restart
+        an unhealthy daemon (Chrome launch / chrome://inspect / a new Allow popup)."""
+        bu_cli._reload_daemons([("", "", "", "", "_live_default")])
+        (_c, _code, _n, close_env), (_c2, _code2, _n2, reload_env) = runs
+        assert close_env["BH_REQUIRE_EXISTING_DAEMON"] == "1"
+        assert "BH_REQUIRE_EXISTING_DAEMON" not in reload_env
 
     def test_other_daemons_are_not_touched(self, runs):
         bu_cli._reload_daemons([("", "", "", "", "default"), ("", "", "", "", "_local_default")])
-        assert [code for _c, code, _n in runs] == ["", ""]  # only --reload
+        assert [code for _c, code, _n, _e in runs] == ["", ""]  # only --reload
 
     def test_dead_daemon_gets_no_cli_run_that_could_spawn_one(self, runs, monkeypatch):
         monkeypatch.setattr(bu_cli, "_live_daemon_running", lambda env: False)
         bu_cli._reload_daemons([("", "", "", "", "_live_default")])
-        assert [code for _c, code, _n in runs] == [""]
+        assert [code for _c, code, _n, _e in runs] == [""]
 
     def test_close_error_does_not_block_the_reload(self, monkeypatch):
         seen = []

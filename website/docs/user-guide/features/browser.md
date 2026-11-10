@@ -471,6 +471,7 @@ How it behaves:
 - **One connection.** Hermes does not open a second CDP connection for dialog handling, so no second popup. `browser_vault` therefore reports `supervisor_required` while live mode discovers your Chrome (with a fixed endpoint below, the supervisor attaches there normally).
 - **Precedence.** An operator override (`BU_CDP_*`, `/browser connect`, `BROWSER_CDP_URL`, `browser.cdp_url`) wins. Otherwise live mode beats a cloud provider and `browser.use_real_profile` (and serves the `local` argument itself, so no profile snapshot is made). Private/LAN URLs still go to the [hybrid local sidecar](#cloud-browsers) when a cloud provider is configured, never into your signed-in Chrome.
 - **macOS permission.** macOS can block reading `~/Library/Application Support/Google/Chrome` with "Operation not permitted", depending on which app launched Hermes. Hermes then names the folder in its error; grant that app access under **System Settings → Privacy & Security** (Files and Folders or Full Disk Access) and restart it. Hermes does not work around the protection.
+- Chrome writes the toggle into `Local State` lazily, so right after you tick it the first call may still be refused; retry after a moment.
 - The live-Chrome description and the approval refusal apply only while live mode is the route in use, not while an operator override owns routing.
 - A harness daemon that is already running keeps the browser it started with; `live_chrome` takes effect when it next starts.
 
