@@ -377,8 +377,10 @@ def _stop_live_daemons_if_off() -> None:
     shutdown closes only the tab it opened, never the user's browser or tabs."""
     if live_chrome_enabled():
         return
+    home = hermes_home_key()  # the switch is this profile's: never stop another served profile's live daemon
     with _driven_daemons_lock:
-        daemons = sorted(key for key in _driven_daemons if str(key[-1]).startswith("_live_"))
+        daemons = sorted(key for key, owner in _driven_daemons.items()
+                         if owner == home and str(key[-1]).startswith("_live_"))
         for key in daemons:
             _driven_daemons.pop(key, None)
     _reload_daemons(daemons)

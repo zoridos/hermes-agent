@@ -400,3 +400,16 @@ class TestToggleDetaches:
         on = _exec()["output"]
         assert "name:_live_default ws:unset" in on
         assert reloaded == []  # the packaged daemon is left alone; it simply isn't used
+
+    def test_off_stops_only_this_profiles_live_daemons(self, monkeypatch, config, reloaded):
+        """A multi-profile gateway: one profile's switch never stops another profile's live daemon."""
+        mine, theirs = ("dirs-a", "_live_default"), ("dirs-b", "_live_default")
+        packaged = ("dirs-a", "default")
+        with bu_cli._driven_daemons_lock:
+            bu_cli._driven_daemons.update({mine: "home-a", theirs: "home-b", packaged: "home-a"})
+        monkeypatch.setattr(bu_cli, "hermes_home_key", lambda: "home-a")
+        bu_cli._stop_live_daemons_if_off()  # config has live_chrome unset: off for home-a
+        assert reloaded == [mine]
+        with bu_cli._driven_daemons_lock:
+            assert theirs in bu_cli._driven_daemons and packaged in bu_cli._driven_daemons
+            assert mine not in bu_cli._driven_daemons
