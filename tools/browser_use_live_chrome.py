@@ -21,8 +21,6 @@ import re
 from pathlib import Path
 from typing import Optional
 
-import psutil
-
 from tools.browser_session_cloud import browser_cfg
 from utils import is_truthy_value
 
@@ -113,10 +111,12 @@ def _singleton_pid_alive(base: Path) -> bool:
         pid = int(os.readlink(base / "SingletonLock").rsplit("-", 1)[-1])
     except (FileNotFoundError, NotADirectoryError, ValueError):
         return False
+    import psutil  # lazy: not installed on every platform (pyproject marks it non-android)
     return psutil.pid_exists(pid)
 
 
 def _windows_browser_running() -> bool:
+    import psutil
     return any((proc.info["name"] or "").lower() in _WINDOWS_BROWSER_EXES
                for proc in psutil.process_iter(["name"]))
 
