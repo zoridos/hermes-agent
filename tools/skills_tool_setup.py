@@ -3,7 +3,9 @@
 ``load_env``) stays there and is read lazily at call time so origin-module patches are honored."""
 
 import logging
+import os
 import re
+import shutil
 from enum import Enum
 from typing import Any, Dict, List
 
@@ -13,6 +15,7 @@ from utils import env_var_enabled
 logger = logging.getLogger("tools.skills_tool")
 
 _ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_COMMAND_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.+-]*$")
 _REMOTE_ENV_BACKENDS = frozenset({"docker", "modal", "ssh", "daytona", "vercel_sandbox"})
 
 
@@ -78,6 +81,42 @@ def _get_required_environment_variables(frontmatter: dict[str, Any]) -> list[dic
             normalized["optional"] = True
         required[env_name] = normalized
     return list(required.values())
+
+
+def _get_required_commands(frontmatter: dict[str, Any]) -> list[str]:
+    """Parse ``prerequisites.commands`` into a deduped, validated list of command names."""
+    prereqs = frontmatter.get("prerequisites")
+    raw = prereqs.get("commands") if isinstance(prereqs, dict) else None
+    items = [raw] if isinstance(raw, str) else raw if isinstance(raw, list) else []
+    required: dict[str, None] = {}
+    for item in items:
+        if not isinstance(item, str):
+            continue
+        cmd = item.strip()
+        if cmd and _COMMAND_NAME_RE.match(cmd):
+            required.setdefault(cmd, None)
+    return list(required)
+
+
+def _resolve_required_commands(
+    frontmatter: dict[str, Any], backend: str) -> tuple[list[str], list[str]]:
+    """Return ``(required_commands, missing_required_commands)`` for *frontmatter*.
+
+    On the ``local`` terminal backend, each command is resolved via ``shutil.which``
+    against the exact ``PATH`` the terminal tool constructs (``_make_run_env``).
+    On non-local backends (``docker``, ``ssh``, ``modal``, ``daytona``,
+    ``vercel_sandbox``, ...), the host ``PATH`` says nothing about what is
+    installed inside the sandbox, so ``required_commands`` is still reported for
+    visibility while ``missing_required_commands`` stays empty.
+    """
+    required_commands = _get_required_commands(frontmatter)
+    if not required_commands or backend != "local":
+        return required_commands, []
+    from tools.environments.local import _make_run_env, _path_env_key
+    run_env = _make_run_env({})
+    lookup_path = run_env.get(_path_env_key(run_env) or "PATH") or os.environ.get("PATH")
+    missing = [cmd for cmd in required_commands if shutil.which(cmd, path=lookup_path) is None]
+    return required_commands, missing
 
 
 def _capture_result(missing_names, setup_skipped=False, gateway_setup_hint=None):
