@@ -67,11 +67,14 @@ take over the screen.
      `<name>, [Nearby, ]<place or address> · <last seen>[ · <battery>]`, e.g.
      `macbook, Home · 7 min. ago`,
      `AirPods Pro, Nearby, Home · 6 min. ago`,
-     `John's Wallet, Nearby, Home · 23 min. ago · Quarter-Charged Battery`.
+     `Wallet, Nearby, Home · 23 min. ago · Quarter-Charged Battery`.
    - Other elements are map POI pins; ignore them.
 
-3. Delete capture files you don't need: screenshots under
-   `~/.hermes/cache/images`, element trees under `~/.hermes/cache/computer_use`.
+3. Delete only the files that capture call returned: its `screenshot_path`
+   (a `computer_use_*` file in `~/.hermes/cache/images`) and its
+   `elements_file` (an `elements_*.json` file in
+   `~/.hermes/cache/computer_use`). Never delete those directories or other
+   files in them: `~/.hermes/cache/images` also holds images users sent.
 
 ## Don't
 
@@ -87,7 +90,9 @@ A cron job runs in the gateway, a different process from the interactive
 terminal, and may lack these permissions. Say so to the user, and have the job
 run `hermes computer-use permissions status` in that context first. Each run:
 open, switch tab via the View menu, capture in `ax` mode, log the matching
-entry's text, delete capture files.
+entry's text, then delete only the files that capture call returned (its
+`computer_use_*` screenshot in `~/.hermes/cache/images` and its
+`elements_*.json` in `~/.hermes/cache/computer_use`), never the directories.
 
 Unverified: older notes claim AirTags only update while their page is open.
 Don't rely on it either way.
