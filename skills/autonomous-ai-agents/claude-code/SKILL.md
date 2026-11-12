@@ -189,7 +189,7 @@ To accept: `tmux send-keys -t <session> Down && sleep 0.3 && tmux send-keys -t <
 
 ### Structured JSON Output
 ```
-terminal(command="claude -p 'Analyze auth.py for security issues' --output-format json --max-turns 5", workdir="/project", timeout=120)
+terminal(command="claude -p 'Analyze auth.py for security issues' --output-format json --model haiku --max-turns 5", workdir="/project", timeout=120)
 ```
 
 Returns a JSON object with:
