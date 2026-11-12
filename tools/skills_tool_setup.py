@@ -5,7 +5,6 @@
 import logging
 import os
 import re
-import shutil
 from enum import Enum
 from typing import Any, Dict, List
 
@@ -102,8 +101,9 @@ def _resolve_required_commands(
     frontmatter: dict[str, Any], backend: str) -> tuple[list[str], list[str]]:
     """Return ``(required_commands, missing_required_commands)`` for *frontmatter*.
 
-    On the ``local`` terminal backend, each command is resolved via ``shutil.which``
-    against the exact ``PATH`` the terminal tool constructs (``_make_run_env``).
+    On the ``local`` terminal backend, each command is resolved via
+    ``hermes_platform.resolver.locate_command`` against the exact ``PATH`` the
+    terminal tool constructs (``_make_run_env``).
     On non-local backends (``docker``, ``ssh``, ``modal``, ``daytona``,
     ``vercel_sandbox``, ...), the host ``PATH`` says nothing about what is
     installed inside the sandbox, so ``required_commands`` is still reported for
@@ -112,10 +112,11 @@ def _resolve_required_commands(
     required_commands = _get_required_commands(frontmatter)
     if not required_commands or backend != "local":
         return required_commands, []
+    from hermes_platform.resolver import LookupContext, locate_command
     from tools.environments.local import _make_run_env, _path_env_key
     run_env = _make_run_env({})
     lookup_path = run_env.get(_path_env_key(run_env) or "PATH") or os.environ.get("PATH")
-    missing = [cmd for cmd in required_commands if shutil.which(cmd, path=lookup_path) is None]
+    missing = [cmd for cmd in required_commands if not locate_command(cmd, LookupContext(path=lookup_path)).found]
     return required_commands, missing
 
 
