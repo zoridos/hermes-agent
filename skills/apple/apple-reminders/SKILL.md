@@ -45,7 +45,7 @@ Access is granted per calling app. A Hermes process launched differently from th
 With no human at the keyboard, a command that prompts will hang.
 
 - Pass `--no-input` on every write (`add`, `edit`, `complete`, `delete`, `list --create/--delete/--rename`). Every command accepts it; it disables interactive prompts.
-- `delete` and `list <name> --delete` prompt for confirmation unless given `-f`/`--force`. Confirm with the user before any delete; that confirmation is why passing `--force` is safe.
+- `delete` and `list <name> --delete` delete immediately under `--no-input` or with no TTY; the CLI will not confirm (remindctl only prompts on a TTY). Always confirm with the user first, preview with `--dry-run`, then run with `--force --no-input`.
 - `complete` and `delete` accept `-n`/`--dry-run` to preview.
 - Pass reminder IDs, not indexes. Commands take an "Index or ID prefix", and indexes shift as reminders change. Read the `id` field (a UUID) from `--json` output and pass it, or a unique prefix of it.
 - Use `--json` and parse it; don't scrape the default output.
@@ -162,4 +162,4 @@ Accepted by `--due` and date filters:
 1. When user says "remind me", clarify: Apple Reminders (syncs to phone) vs agent cronjob alert
 2. Always confirm reminder content and due date before creating
 3. Use `--json` for programmatic parsing, and IDs from it for `edit`/`complete`/`delete`
-4. Pass `--no-input` on every write; confirm with the user before any delete, then use `--force`
+4. Pass `--no-input` on every write. Deletes run immediately with no CLI confirmation, so confirm with the user first, preview with `--dry-run`, then use `--force --no-input`
