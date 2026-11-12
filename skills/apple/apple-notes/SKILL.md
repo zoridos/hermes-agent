@@ -1,6 +1,6 @@
 ---
 name: apple-notes
-description: "Manage Apple Notes via memo CLI: create, search, edit."
+description: "Read, search and write Apple Notes via memo + osascript."
 version: 1.1.0
 author: Hermes Agent
 license: MIT
@@ -50,7 +50,7 @@ To search, filter the list in `terminal` (`memo notes -nc | grep -i "query"`), o
 
 ## Writing and exact reads (osascript)
 
-Pass data to `osascript` as `argv`, never interpolated into the script, so quotes, links, `&` and hostile text are stored literally and nothing is executed. Identify notes by id (an `x-coredata://...` string), not list number: numbers shift after writes.
+Pass data to `osascript` as `argv`, never interpolated into the script, so quotes, links, `&` and hostile text are stored literally and nothing is executed. `folder (item 1 of argv)` picks the first match if two accounts (iCloud, On My Mac) have a folder with that name; when ambiguous, name the account in the script: `folder "X" of account "iCloud"`. Identify notes by id (an `x-coredata://...` string), not list number: numbers shift after writes.
 
 ```bash
 # Get id by folder + title
@@ -82,7 +82,7 @@ end run' "$ID"
 The body is HTML and the note title is its first line (an `<h1>` works). Write simple HTML directly, or convert Markdown with the `mistune` already in memo's venv:
 
 ```bash
-HTML=$(/opt/homebrew/opt/memo/libexec/bin/python -c 'import sys,mistune;print(mistune.markdown(open(sys.argv[1]).read()))' note.md)
+HTML=$("$(brew --prefix memo)/libexec/bin/python" -c 'import sys,mistune;print(mistune.markdown(open(sys.argv[1]).read()))' note.md)
 ```
 
 Setting `body` replaces the whole note, and attachments/images are lost. To edit, read the note first, then write the full new body.
