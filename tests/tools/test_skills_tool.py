@@ -801,7 +801,7 @@ class TestSkillViewPrerequisites:
         with (
             patch("tools.skills_tool.SKILLS_DIR", skills_root),
             patch(
-                "subprocess.run",
+                "subprocess.Popen",
                 side_effect=subprocess.TimeoutExpired(cmd=["bash"], timeout=5),
             ),
             caplog.at_level("DEBUG", logger="tools.skills_tool"),
@@ -816,6 +816,124 @@ class TestSkillViewPrerequisites:
         assert result["readiness_status"] == "available"
         assert "setup_note" not in result
         assert any("login-shell" in r.getMessage().lower() for r in caplog.records)
+
+    @pytest.mark.platforms("posix")
+    def test_local_login_shell_probe_timeout_kills_process_group_children(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("TERMINAL_ENV", "local")
+        monkeypatch.setenv("PATH", "/usr/bin:/bin")
+        pid_file = tmp_path / "rc_child.pid"
+        init_file = tmp_path / "slow-init.sh"
+        init_file.write_text(
+            f"sleep 3 &\necho $! > {pid_file}\nsleep 3\n",
+            encoding="utf-8",
+        )
+        missing_cmd = "hermes_nonexistent_cmd_group_timeout_888"
+
+        skills_root = tmp_path / "skills"
+        skills_root.mkdir()
+        _make_skill(
+            skills_root,
+            "group-timeout-skill",
+            frontmatter_extra=f"prerequisites:\n  commands: [{missing_cmd}]\n",
+        )
+
+        with (
+            patch("tools.skills_tool.SKILLS_DIR", skills_root),
+            patch(
+                "tools.environments.local._read_terminal_shell_init_config",
+                return_value=([str(init_file)], False),
+            ),
+            patch(
+                "tools.skills_tool_setup._LOGIN_SHELL_PROBE_TIMEOUT_SECONDS",
+                0.3,
+            ),
+        ):
+            raw = skill_view("group-timeout-skill")
+
+        result = json.loads(raw)
+        assert result["success"] is True
+        assert result["missing_required_commands"] == []
+        assert pid_file.exists(), "rc background child should have started"
+        child_pid = int(pid_file.read_text(encoding="utf-8").strip())
+        with pytest.raises(ProcessLookupError):
+            os.kill(child_pid, 0)
+
+    def test_normalize_snapshot_path_converts_msys_entries_for_windows_lookup(self):
+        from tools.skills_tool_setup import _normalize_snapshot_path
+
+        assert (
+            _normalize_snapshot_path(
+                "/c/Users/me/.nvm/bin:/usr/bin",
+                is_windows=False,
+                pathsep=":",
+            )
+            == "/c/Users/me/.nvm/bin:/usr/bin"
+        )
+        translated = {
+            "/c/Users/me/.nvm/bin": r"C:\Users\me\.nvm\bin",
+            "/d/Tools/bin": r"D:\Tools\bin",
+        }
+        assert (
+            _normalize_snapshot_path(
+                "/c/Users/me/.nvm/bin::/d/Tools/bin:/usr/bin",
+                is_windows=True,
+                pathsep=";",
+                to_native=lambda p: translated.get(p, p),
+            )
+            == r"C:\Users\me\.nvm\bin;D:\Tools\bin;/usr/bin"
+        )
+
+    @pytest.mark.platforms("windows")
+    def test_local_windows_msys_snapshot_path_resolves_command_without_login_shell(
+        self, tmp_path, monkeypatch
+    ):
+        from types import SimpleNamespace
+        from tools.environments.local import _windows_to_msys_path
+
+        monkeypatch.setenv("TERMINAL_ENV", "local")
+        snap_bin = tmp_path / "snap-bin"
+        snap_bin.mkdir(parents=True)
+        fake_cmd = "hermes_win_snap_cli"
+        (snap_bin / f"{fake_cmd}.cmd").write_text("@echo off\r\nexit /b 0\r\n", encoding="utf-8")
+        msys_snap_bin = _windows_to_msys_path(str(snap_bin))
+        snap_file = tmp_path / "hermes-snap-win.sh"
+        snap_file.write_text(
+            f'declare -x PATH="{msys_snap_bin}:/usr/bin:/mingw64/bin"\n',
+            encoding="utf-8",
+        )
+        fake_env = SimpleNamespace(
+            is_local=True, _snapshot_ready=True, _snapshot_path=str(snap_file)
+        )
+
+        skills_root = tmp_path / "skills"
+        skills_root.mkdir()
+        _make_skill(
+            skills_root,
+            "win-snap-skill",
+            frontmatter_extra=f"prerequisites:\n  commands: [{fake_cmd}]\n",
+        )
+
+        with (
+            patch("tools.skills_tool.SKILLS_DIR", skills_root),
+            patch(
+                "tools.terminal_tool_lifecycle.get_active_env",
+                return_value=fake_env,
+            ),
+            patch(
+                "tools.skills_tool_setup._probe_missing_via_login_shell",
+                side_effect=AssertionError("should not spawn login shell"),
+            ),
+        ):
+            raw = skill_view("win-snap-skill")
+
+        result = json.loads(raw)
+        assert result["success"] is True
+        assert result["required_commands"] == [fake_cmd]
+        assert result["missing_required_commands"] == []
+        assert result["setup_needed"] is False
+        assert result["readiness_status"] == "available"
 
     def test_local_reuses_live_session_snapshot_path_without_spawning_login_shell(
         self, tmp_path, monkeypatch
@@ -853,7 +971,7 @@ class TestSkillViewPrerequisites:
                 return_value=fake_env,
             ),
             patch(
-                "subprocess.run",
+                "subprocess.Popen",
                 side_effect=AssertionError("should not spawn login shell"),
             ),
         ):

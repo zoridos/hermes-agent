@@ -2,6 +2,7 @@
 ``tools.skills_tool`` (names re-imported there); module state (``_secret_capture_callback``,
 ``load_env``) stays there and is read lazily at call time so origin-module patches are honored."""
 
+import contextlib
 import logging
 import os
 import re
@@ -9,7 +10,7 @@ import shlex
 import subprocess
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from hermes_constants import display_hermes_home
 from utils import env_var_enabled
@@ -103,6 +104,24 @@ def _get_required_commands(frontmatter: dict[str, Any]) -> list[str]:
     return list(required)
 
 
+def _normalize_snapshot_path(
+    snapshot_path: str, *, is_windows: bool | None = None, pathsep: str | None = None,
+    to_native: Callable[[str], str] | None = None) -> str:
+    """Convert a Git Bash ``export -p`` snapshot ``PATH`` to native ``os.pathsep`` form on Windows."""
+    if not snapshot_path:
+        return ""
+    if is_windows is None or to_native is None:
+        from tools.environments.local import _IS_WINDOWS, _msys_to_windows_path
+        if is_windows is None:
+            is_windows = _IS_WINDOWS
+        if to_native is None:
+            to_native = _msys_to_windows_path
+    if not is_windows:
+        return snapshot_path
+    sep = os.pathsep if pathsep is None else pathsep
+    return sep.join(to_native(entry) for entry in snapshot_path.split(":") if entry)
+
+
 def _live_local_snapshot_path(task_id: str | None = None) -> tuple[dict[str, str], str | None]:
     """Return ``(backend_env, snapshot_path)`` from the active local terminal session, if any."""
     try:
@@ -129,7 +148,8 @@ def _live_local_snapshot_path(task_id: str | None = None) -> tuple[dict[str, str
     raw = last.group(1) if last.group(1) is not None else (last.group(2) if last.group(2) is not None else last.group(3))
     if raw and last.group(1) is not None:
         raw = raw.replace(r"\\", "\\").replace(r'\"', '"').replace(r"\$", "$").replace(r"\`", "`")
-    return backend_env, (raw or None)
+    normalized = _normalize_snapshot_path(raw) if raw else ""
+    return backend_env, (normalized or None)
 
 
 def _probe_missing_via_login_shell(commands: list[str], run_env: dict[str, str], path_key: str) -> list[str]:
@@ -137,9 +157,15 @@ def _probe_missing_via_login_shell(commands: list[str], run_env: dict[str, str],
 
     Any lookup failure or timeout treats the commands as unknown (returns ``[]``) and logs at debug.
     """
+    proc = None
+    owned_pgid = None
     try:
+        from hermes_cli._subprocess_compat import windows_hide_flags
+        from hermes_cli.process_identity import own_process_groups, release_process_groups
         from tools.environments.local import (
-            _append_dropped_path_entries, _find_bash, _prepend_shell_init, _resolve_shell_init_files)
+            _IS_WINDOWS, _append_dropped_path_entries, _find_bash,
+            _kill_process_group_posix, _kill_process_windows,
+            _prepend_shell_init, _resolve_shell_init_files)
         bash = _find_bash()
         quoted = " ".join(shlex.quote(c) for c in commands)
         probe = (
@@ -151,16 +177,37 @@ def _probe_missing_via_login_shell(commands: list[str], run_env: dict[str, str],
         )
         script = _append_dropped_path_entries(probe, run_env.get(path_key, ""))
         script = _prepend_shell_init(script, _resolve_shell_init_files())
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             [bash, "-l", "-c", script], env=run_env, stdin=subprocess.DEVNULL,
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=_LOGIN_SHELL_PROBE_TIMEOUT_SECONDS, check=False)
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace",
+            # detached-spawn: ok — owned via own_process_groups right below and group-killed on timeout
+            start_new_session=True,
+            **({"creationflags": windows_hide_flags()} if _IS_WINDOWS else {}))
+        if not _IS_WINDOWS:
+            own_process_groups([proc.pid])
+            owned_pgid = proc.pid
+            with contextlib.suppress(ProcessLookupError):
+                proc._hermes_pgid = os.getpgid(proc.pid)
+                from gateway.status import get_process_start_time
+                proc._hermes_pgid_start = get_process_start_time(proc.pid)
+        try:
+            stdout, _ = proc.communicate(timeout=_LOGIN_SHELL_PROBE_TIMEOUT_SECONDS)
+        except BaseException:
+            with contextlib.suppress(Exception):
+                (_kill_process_windows if _IS_WINDOWS else _kill_process_group_posix)(proc)
+            with contextlib.suppress(Exception):
+                proc.communicate(timeout=0.5)
+            raise
+        finally:
+            if owned_pgid is not None:
+                release_process_groups([owned_pgid])
     except Exception:
         logger.debug("Login-shell command readiness lookup failed for %s; treating as unknown", commands, exc_info=True)
         return []
     verdicts: dict[str, bool] = {}
     prefix = f"{_LOGIN_SHELL_PROBE_MARKER}:"
-    for line in (proc.stdout or "").splitlines():
+    for line in (stdout or "").splitlines():
         if line.startswith(prefix):
             _, status, name = line.split(":", 2)
             if status in ("0", "1") and name:
