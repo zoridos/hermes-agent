@@ -14,10 +14,9 @@ metadata:
 # Antigravity CLI (`agy`)
 
 Operator guide for the Antigravity CLI, invoked as `agy`. Run all `agy`
-commands through the Hermes `terminal` tool; inspect its config and logs with
-`read_file` and never print secrets. This skill is reference + procedure — it
-does not wrap a network API, so there is nothing to authenticate from Hermes
-itself.
+commands through the Hermes `terminal` tool and inspect its config and logs with
+`read_file`. This skill is reference + procedure — it does not wrap a network
+API, so there is nothing to authenticate from Hermes itself.
 
 ## When to Use
 
@@ -122,7 +121,7 @@ review capacity can absorb.
 - `--print-timeout` defaults to `0s` (wait until the turn completes, no limit).
   **Always pass `--print-timeout` on scripted runs** (e.g. `--print-timeout 5m`)
   and pair it with the `terminal` tool's `timeout=` so neither layer hangs
-  indefinitely. There is still no `--max-turns`.
+  indefinitely.
 
 ### Orchestration boundary
 
@@ -210,7 +209,6 @@ another agent's plan or diff.
 - Top-level keys seen in practice: `model`, `permissions`, `trustedWorkspaces`
 - Additional settings keys: `allowNonWorkspaceAccess`, `colorScheme`,
   `permissions.allow`, `enableTerminalSandbox`
-- Inspect `settings.json` and logs with `read_file` and never print secrets.
 
 ### Permission & execution modes
 - Session `--mode`: `accept-edits`, `auto`, `plan`.
@@ -257,9 +255,9 @@ another agent's plan or diff.
   than hardcoding model lists.
 - Logs under `~/.gemini/antigravity-cli/log/` may contain `"You are not logged
   into Antigravity"` errors left over from sessions started with a fresh or
-  isolated config dir (e.g. AO reviewers); confirm the current run actually
-  failed before treating log entries as an active auth problem.
-- Read config and logs with `read_file` and never print secrets.
+  isolated config dir (e.g. automated or sandboxed runs with their own config
+  dir); confirm the current run actually failed before treating log entries as
+  an active auth problem.
 - Don't confuse persistent JSON settings with launch-time overrides (`--mode`,
   `--sandbox`, `--dangerously-skip-permissions`, `--settings`).
 - `~/.gemini/antigravity-cli/bin/agentapi` is a thin wrapper to `agy agentapi`.
@@ -271,7 +269,7 @@ another agent's plan or diff.
 ## Verification
 
 Confirm the install is real and usable, all through the `terminal` tool (read
-files with `read_file` and never print secrets):
+files with `read_file`):
 
 1. `terminal(command="command -v agy")`
 2. `terminal(command="agy --version")`

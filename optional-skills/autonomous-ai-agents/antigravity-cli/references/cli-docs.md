@@ -17,7 +17,7 @@ Source pages and CLI output reviewed (`agy 1.5.7`):
 - Local machine: opens the default browser.
 - SSH/remote: prints a secure authorization URL, then expects the auth code to be pasted back.
 - `/logout` removes saved credentials.
-- Logs under `~/.gemini/antigravity-cli/log/` may contain `"You are not logged into Antigravity"` errors from sessions started with a fresh or isolated config dir (e.g. AO reviewers); verify that the current run failed before treating it as an auth issue.
+- Logs under `~/.gemini/antigravity-cli/log/` may contain `"You are not logged into Antigravity"` errors from sessions started with a fresh or isolated config dir (e.g. automated or sandboxed runs with their own config dir); verify that the current run failed before treating it as an auth issue.
 
 ## Config and files
 - Settings: `~/.gemini/antigravity-cli/settings.json` (top-level keys seen: `model`, `permissions`, `trustedWorkspaces`; also `allowNonWorkspaceAccess`, `colorScheme`, `enableTerminalSandbox`)
