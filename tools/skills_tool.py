@@ -468,7 +468,7 @@ def _skill_linked_files(skill_dir: Optional[Path]) -> dict:
     return files
 
 
-def _skill_readiness(frontmatter: dict[str, Any], skill_name: str) -> tuple[dict, dict]:
+def _skill_readiness(frontmatter: dict[str, Any], skill_name: str, task_id: str | None = None) -> tuple[dict, dict]:
     """Resolve required env vars / credential files (prompting for secrets where the surface
     allows) and register what's available for sandboxes. Returns ``(fields, extras)``: fields go
     before the readiness extras in the skill_view result — key order is tool output."""
@@ -504,7 +504,7 @@ def _skill_readiness(frontmatter: dict[str, Any], skill_name: str) -> tuple[dict
             missing_cred_files = register_credential_files(required_cred_files_raw)
         except Exception:
             logger.debug("Could not register credential files for skill %s", skill_name, exc_info=True)
-    required_commands, missing_commands = _resolve_required_commands(frontmatter, backend)
+    required_commands, missing_commands = _resolve_required_commands(frontmatter, backend, task_id=task_id)
     setup_needed = bool(remaining or missing_cred_files or missing_commands)
     status = SkillReadinessStatus.SETUP_NEEDED if setup_needed else SkillReadinessStatus.AVAILABLE
     fields = {
@@ -669,7 +669,7 @@ def skill_view(
         except ValueError:  # external skill — relative to its own parent dir
             rel_path = str(skill_md.relative_to(skill_md.parent.parent)) if skill_md.parent.parent else skill_md.name
         skill_name = frontmatter.get("name", skill_md.stem if not skill_dir else skill_dir.name)
-        readiness, readiness_extras = _skill_readiness(frontmatter, skill_name)
+        readiness, readiness_extras = _skill_readiness(frontmatter, skill_name, task_id=task_id)
         rendered_content = content if not preprocess else _preprocess_skill(
             content, skill_dir, task_id, "Could not preprocess skill content for %s", skill_name)
         # ── pm tool deps (`deps: [ffmpeg]` frontmatter) ──────────────

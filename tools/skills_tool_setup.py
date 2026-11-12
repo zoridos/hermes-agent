@@ -5,7 +5,10 @@
 import logging
 import os
 import re
+import shlex
+import subprocess
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List
 
 from hermes_constants import display_hermes_home
@@ -15,6 +18,9 @@ logger = logging.getLogger("tools.skills_tool")
 
 _ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _COMMAND_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.+-]*$")
+_SNAPSHOT_PATH_RE = re.compile(r'^(?:declare -x|export) PATH=(?:"([^"]*)"|\'([^\']*)\'|(\S+))$', re.MULTILINE)
+_LOGIN_SHELL_PROBE_MARKER = "__HERMES_SKILL_CMD_PROBE__"
+_LOGIN_SHELL_PROBE_TIMEOUT_SECONDS = 5
 _REMOTE_ENV_BACKENDS = frozenset({"docker", "modal", "ssh", "daytona", "vercel_sandbox"})
 
 
@@ -97,13 +103,87 @@ def _get_required_commands(frontmatter: dict[str, Any]) -> list[str]:
     return list(required)
 
 
+def _live_local_snapshot_path(task_id: str | None = None) -> tuple[dict[str, str], str | None]:
+    """Return ``(backend_env, snapshot_path)`` from the active local terminal session, if any."""
+    try:
+        from tools.terminal_tool_lifecycle import get_active_env
+        env = get_active_env(task_id or "default")
+    except Exception:
+        logger.debug("Could not inspect active terminal env for skill readiness", exc_info=True)
+        return {}, None
+    if env is None or not getattr(env, "is_local", False):
+        return {}, None
+    backend_env = getattr(env, "env", None)
+    backend_env = dict(backend_env) if isinstance(backend_env, dict) else {}
+    snap_file = getattr(env, "_snapshot_path", None) if getattr(env, "_snapshot_ready", False) else None
+    if not isinstance(snap_file, str) or not snap_file:
+        return backend_env, None
+    try:
+        content = Path(snap_file).read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return backend_env, None
+    matches = list(_SNAPSHOT_PATH_RE.finditer(content))
+    if not matches:
+        return backend_env, None
+    last = matches[-1]
+    raw = last.group(1) if last.group(1) is not None else (last.group(2) if last.group(2) is not None else last.group(3))
+    if raw and last.group(1) is not None:
+        raw = raw.replace(r"\\", "\\").replace(r'\"', '"').replace(r"\$", "$").replace(r"\`", "`")
+    return backend_env, (raw or None)
+
+
+def _probe_missing_via_login_shell(commands: list[str], run_env: dict[str, str], path_key: str) -> list[str]:
+    """Re-resolve *commands* in one ``bash -lc`` login shell matching ``LocalEnvironment._run_bash(login=True)``.
+
+    Any lookup failure or timeout treats the commands as unknown (returns ``[]``) and logs at debug.
+    """
+    try:
+        from tools.environments.local import (
+            _append_dropped_path_entries, _find_bash, _prepend_shell_init, _resolve_shell_init_files)
+        bash = _find_bash()
+        quoted = " ".join(shlex.quote(c) for c in commands)
+        probe = (
+            f"for __hermes_c in {quoted}; do "
+            f'if command -v -- "$__hermes_c" >/dev/null 2>&1; then '
+            f'printf "{_LOGIN_SHELL_PROBE_MARKER}:1:%s\\n" "$__hermes_c"; '
+            f'else printf "{_LOGIN_SHELL_PROBE_MARKER}:0:%s\\n" "$__hermes_c"; fi; '
+            "done"
+        )
+        script = _append_dropped_path_entries(probe, run_env.get(path_key, ""))
+        script = _prepend_shell_init(script, _resolve_shell_init_files())
+        proc = subprocess.run(
+            [bash, "-l", "-c", script], env=run_env, stdin=subprocess.DEVNULL,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=_LOGIN_SHELL_PROBE_TIMEOUT_SECONDS, check=False)
+    except Exception:
+        logger.debug("Login-shell command readiness lookup failed for %s; treating as unknown", commands, exc_info=True)
+        return []
+    verdicts: dict[str, bool] = {}
+    prefix = f"{_LOGIN_SHELL_PROBE_MARKER}:"
+    for line in (proc.stdout or "").splitlines():
+        if line.startswith(prefix):
+            _, status, name = line.split(":", 2)
+            if status in ("0", "1") and name:
+                verdicts[name] = status == "1"
+    if not all(c in verdicts for c in commands):
+        logger.debug(
+            "Login-shell command readiness lookup returned incomplete output (rc=%s) for %s; treating as unknown",
+            proc.returncode, commands)
+        return []
+    return [c for c in commands if not verdicts[c]]
+
+
 def _resolve_required_commands(
-    frontmatter: dict[str, Any], backend: str) -> tuple[list[str], list[str]]:
+    frontmatter: dict[str, Any], backend: str, task_id: str | None = None) -> tuple[list[str], list[str]]:
     """Return ``(required_commands, missing_required_commands)`` for *frontmatter*.
 
-    On the ``local`` terminal backend, each command is resolved via
-    ``hermes_platform.resolver.locate_command`` against the exact ``PATH`` the
-    terminal tool constructs (``_make_run_env``).
+    On the ``local`` terminal backend, each command is first checked via
+    ``hermes_platform.resolver.locate_command`` against the spawn ``PATH``
+    (``_make_run_env``, plus any live local session snapshot ``PATH``). Commands
+    still unresolved are checked in a single ``bash -lc`` login-shell call that
+    sources user init files and ``terminal.shell_init_files`` just like
+    ``LocalEnvironment._run_bash(..., login=True)``; if that probe fails or times
+    out, unresolved commands are treated as unknown (not missing).
     On non-local backends (``docker``, ``ssh``, ``modal``, ``daytona``,
     ``vercel_sandbox``, ...), the host ``PATH`` says nothing about what is
     installed inside the sandbox, so ``required_commands`` is still reported for
@@ -114,10 +194,16 @@ def _resolve_required_commands(
         return required_commands, []
     from hermes_platform.resolver import LookupContext, locate_command
     from tools.environments.local import _make_run_env, _path_env_key
-    run_env = _make_run_env({})
-    lookup_path = run_env.get(_path_env_key(run_env) or "PATH") or os.environ.get("PATH")
-    missing = [cmd for cmd in required_commands if not locate_command(cmd, LookupContext(path=lookup_path)).found]
-    return required_commands, missing
+    backend_env, snapshot_path = _live_local_snapshot_path(task_id)
+    # _make_run_env receives the live LocalEnvironment's self.env when a session exists (else {}).
+    run_env = _make_run_env(backend_env)
+    path_key = _path_env_key(run_env) or "PATH"
+    spawn_path = run_env.get(path_key) or os.environ.get("PATH") or ""
+    fast_path = f"{snapshot_path}{os.pathsep}{spawn_path}" if snapshot_path and spawn_path else (snapshot_path or spawn_path)
+    missing = [cmd for cmd in required_commands if not locate_command(cmd, LookupContext(path=fast_path)).found]
+    if not missing or snapshot_path:
+        return required_commands, missing
+    return required_commands, _probe_missing_via_login_shell(missing, run_env, path_key)
 
 
 def _capture_result(missing_names, setup_skipped=False, gateway_setup_hint=None):
