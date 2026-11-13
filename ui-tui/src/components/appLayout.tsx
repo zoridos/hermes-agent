@@ -8,6 +8,7 @@ import { Fragment, memo, type MutableRefObject, useEffect, useMemo, useRef } fro
 import { useGateway } from '../app/gatewayContext.js'
 import { $inputSelection } from '../app/inputSelectionStore.js'
 import type { AppLayoutProps } from '../app/interfaces.js'
+import { nextPromptDrawn } from '../app/nextPromptStore.js'
 import { $isBlocked, $overlayState, patchOverlayState } from '../app/overlayStore.js'
 import { $petBox } from '../app/petFlashStore.js'
 import { $uiState } from '../app/uiStore.js'
@@ -355,7 +356,13 @@ const ComposerPane = memo(function ComposerPane({
     height: inputHeight,
     rows: inputRows,
     scroll: inputScroll
-  } = composerViewport(composer.input + nextPrompt, inputSel, inputColumns, composer.pasteHint === 'collapse', composer.pagerPageSize)
+  } = composerViewport(
+    composer.input + nextPromptDrawn(nextPrompt, { caret: inputSel, input: composer.input, voicePartial }),
+    inputSel,
+    inputColumns,
+    composer.pasteHint === 'collapse',
+    composer.pagerPageSize
+  )
 
   const inputMouseRef = useRef<null | TextInputMouseApi>(null)
 
@@ -491,27 +498,32 @@ const ComposerPane = memo(function ComposerPane({
 
               <Box flexGrow={0} flexShrink={0} height={inputRows} overflow="hidden" width={inputColumns}>
                 <Box flexShrink={0} height={inputHeight} marginTop={-inputScroll} width={inputColumns}>
-                {/* Reserve the transcript scrollbar gutter too so typing never rewraps when the scrollbar column repaints. */}
-                <TextInput
-                  accentColor={ui.theme.color.accent}
-                  color={ui.theme.color.text}
-                  columns={inputColumns}
-                  cursorSnapshotRef={cursorSnapshotRef}
-                  ghost={nextPrompt}
-                  mouseApiRef={inputMouseRef}
-                  onChange={composer.updateInput}
-                  onPaste={composer.handleTextPaste}
-                  onSubmit={composer.submit}
-                  placeholder={composerHint(voicePartial, nextPrompt, composer.empty, ui.busy ? T.composer.interruptHint : '')}
-                  // Exactly the "(and N more toolsets…)" tone. `muted` is a
-                  // MID-luminance family tone, so it reads receded on both
-                  // poles even when polarity detection is wrong (transparent
-                  // terminals lie about their background); anything blended
-                  // toward the resolved surface inherits that wrong polarity.
-                  placeholderColor={ui.theme.color.muted}
-                  value={composer.input}
-                  voiceRecordKey={composer.voiceRecordKey}
-                />
+                  {/* Reserve the transcript scrollbar gutter too so typing never rewraps when the scrollbar column repaints. */}
+                  <TextInput
+                    accentColor={ui.theme.color.accent}
+                    color={ui.theme.color.text}
+                    columns={inputColumns}
+                    cursorSnapshotRef={cursorSnapshotRef}
+                    ghost={nextPrompt}
+                    mouseApiRef={inputMouseRef}
+                    onChange={composer.updateInput}
+                    onPaste={composer.handleTextPaste}
+                    onSubmit={composer.submit}
+                    placeholder={composerHint(
+                      voicePartial,
+                      nextPrompt,
+                      composer.empty,
+                      ui.busy ? T.composer.interruptHint : ''
+                    )}
+                    // Exactly the "(and N more toolsets…)" tone. `muted` is a
+                    // MID-luminance family tone, so it reads receded on both
+                    // poles even when polarity detection is wrong (transparent
+                    // terminals lie about their background); anything blended
+                    // toward the resolved surface inherits that wrong polarity.
+                    placeholderColor={ui.theme.color.muted}
+                    value={composer.input}
+                    voiceRecordKey={composer.voiceRecordKey}
+                  />
                 </Box>
               </Box>
 
