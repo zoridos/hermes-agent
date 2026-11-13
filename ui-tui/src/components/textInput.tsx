@@ -1059,7 +1059,9 @@ export function TextInput({
     })
 
     return () => setInputSelection(null)
-  }, [cur, focus, selected])
+    // `value` too: an edit can change the text and leave the cursor where it was (forward Delete,
+    // undo), and the report carries the text.
+  }, [cur, focus, selected, value])
 
   useEffect(
     () => () => {
