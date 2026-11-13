@@ -103,9 +103,8 @@ top-left of the captured window's screenshot, not of the desktop. Element
 bounds in the list are in desktop coordinates, so to turn bounds into a
 coordinate subtract the window origin (the bounds of `#0`, the `AXWindow`
 element): for a window at `(100, 60)` and a button at `(112, 140, 28, 28)`,
-click its centre at `[26, 94]` (112 - 100 + 14, 140 - 60 + 14). If the screenshot is
-smaller than the window, the capture summary says so and gives the scale to
-divide by. Passing desktop coordinates fails with "outside window ... background
+click its centre at `[26, 94]` (112 - 100 + 14, 140 - 60 + 14). If the screenshot size differs from the window's (downscaled, or 2x on Retina),
+the capture summary gives the scale to divide by. Passing desktop coordinates fails with "outside window ... background
 delivery refused". The capture summary prints the window origin whenever it
 is not (0, 0).
 
@@ -190,7 +189,8 @@ Returned fields (present when the driver supports them):
   (delivered, but confirm it yourself by re-capturing), or `"suspected_noop"`
   (ran but almost certainly did nothing).
 - `escalation`: `{target: "px" | "foreground", reason}` — present only when
-  there's a next rung to try (older drivers call the key `recommended`).
+  there's a next rung to try (older drivers call the key `recommended`; Hermes echoes either as
+  `verdict.recommended`).
 - `meta.route`: how the driver delivered it (`accessibility`,
   `synthetic_events`, …) — useful context, not a verdict.
 - `code`: a structured refusal like `"background_unavailable"`,

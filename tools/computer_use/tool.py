@@ -557,13 +557,17 @@ def _classify_action_result(res: ActionResult) -> dict[str, Any]:
                     "Re-capture first if the index is stale."
                 ),
             }
-        return {"decision": "escalate", **({"recommended": res.escalation.get("recommended")}
-                                           if isinstance(res.escalation, dict) else {}), "hint": (
+        return {"decision": "escalate", **_escalation_hint(res), "hint": (
             "The input likely did not land. Climb one rung following `recommended`: 'px' → re-issue by coordinate; "
             "'foreground' (or a failed pixel click) → re-issue with delivery_mode='foreground' (separate approval). "
             "Do not predict the rung from the app being Electron/Chromium — react to this signal.")}
     return {"decision": "verify_fresh_state",  # transport success without semantic proof is not proof of effect
             "hint": "Transport succeeded but the effect is unproven. Re-capture and confirm before continuing."}
+
+def _escalation_hint(res: ActionResult) -> dict[str, Any]:
+    # `recommended` on older drivers, `target` on cua-driver 0.21+.
+    esc = res.escalation if isinstance(res.escalation, dict) else {}
+    return {"recommended": esc.get("recommended") or esc.get("target")} if esc else {}
 
 def _present(**fields: Any) -> dict[str, Any]:
     return {k: v for k, v in fields.items() if v}  # only the truthy optional fields, in the given order
@@ -615,8 +619,9 @@ def _format_elements(elements: list[UIElement], max_lines: int = 40) -> list[str
     return out + ([f"  ... +{len(elements) - max_lines} more (call capture with app= to narrow)"] if len(elements) > max_lines else [])
 
 def _window_origin(elements: list[UIElement]) -> Optional[tuple[int, int, int, int]]:
-    # The captured window's own frame: the AXWindow / Window element (#0 on macOS). None = full-desktop capture or an
-    # AX tree that does not expose one.
+    # The captured window's own frame: the FIRST AXWindow / Window element in the list (#0 on macOS). Assumes the
+    # driver lists the captured window before any nested window. None (no such element, on any platform) = no
+    # window-local note: full-desktop capture, or an AX tree that does not expose one.
     for e in elements:
         if e.role.lower() in ("axwindow", "window") and not _bounds_unknown(e.bounds):
             with contextlib.suppress(TypeError, ValueError):
@@ -628,15 +633,16 @@ def _window_origin(elements: list[UIElement]) -> Optional[tuple[int, int, int, i
 def _window_local_hints(origin: tuple[int, int, int, int], image_width: int,
                         image_height: int) -> tuple[Optional[float], Optional[str]]:
     """Window captures: ``coordinate=`` is window-local screenshot pixels (cua-driver refuses desktop coordinates as
-    outside the window), while element bounds stay in desktop space. Scale only when the screenshot is downscaled
-    relative to the window size."""
+    outside the window), while element bounds stay in desktop space. Scale (window size / screenshot size) whenever the
+    screenshot differs from the window size by more than 5%: downscaled (>1) or upscaled, e.g. 2x Retina (<1)."""
     x, y, w, h = origin
-    scale = round(max(w / image_width, h / image_height), 2) if max(w / image_width, h / image_height) > 1.05 else None
+    ratio = max((w / image_width, h / image_height), key=lambda r: abs(r - 1))
+    scale = round(ratio, 2) if abs(ratio - 1) > 0.05 else None
     if (x, y) == (0, 0) and scale is None:
         return None, None
     note = (f"coordinate= takes window-local screenshot pixels ({image_width}x{image_height}), not desktop coordinates; "
             f"element bounds are desktop coordinates — subtract the window origin ({x}, {y}) to get the window-local point"
-            + (f", then divide by {scale} (the screenshot is downscaled)" if scale else ""))
+            + (f", then divide by {scale} (the screenshot is {'downscaled' if scale > 1 else 'upscaled'})" if scale else ""))
     return scale, note
 
 def _bounds_hints(elements: list[UIElement], image_width: int, image_height: int) -> tuple[Optional[float], Optional[str]]:

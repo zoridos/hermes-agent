@@ -76,7 +76,7 @@ class ActionResult:
     meta: dict[str, Any] = field(default_factory=dict)  # debugging / telemetry extras
     verified: Optional[bool] = None  # AX read-back: True confirmed, False unconfirmed, None n/a
     effect: Optional[str] = None     # "confirmed" | "unverifiable" | "suspected_noop"
-    # {"recommended": "px"|"foreground"|"page", "reason": str} — only when driver recommends climbing
+    # {"target" (cua-driver 0.21+) or "recommended" (older): "px"|"foreground"|"page", "reason": str} — only when climbing
     escalation: Optional[dict[str, Any]] = None
     path: Optional[str] = None       # delivery rung that ran (e.g. "ax", "x11_pixel", "cgevent_fg")
     degraded: Optional[bool] = None  # AX walk found no actionable elements (act by px instead)

@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tools.computer_use.backend import CaptureResult, UIElement
+from tools.computer_use.backend import ActionResult, CaptureResult, UIElement
 from tools.computer_use.cua_backend import CuaDriverBackend
 from tools.computer_use.tool import _capture_response, _classify_action_result
 
@@ -40,6 +40,15 @@ def test_downscaled_window_capture_reports_window_scale(tmp_path, monkeypatch):
     out = _summary(cap)
     assert "window-local" in out["summary"]
     assert out["bounds_scale"] == pytest.approx(2.0)
+
+
+def test_upscaled_window_capture_reports_window_scale(tmp_path, monkeypatch):
+    # 2x Retina: a 460x816 image of a 230x408 window.
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    cap = CaptureResult(mode="ax", width=460, height=816, elements=[WINDOW, BUTTON], app="Calculator")
+    out = _summary(cap)
+    assert "window-local" in out["summary"]
+    assert out["bounds_scale"] == pytest.approx(0.5)
 
 
 def test_capture_without_window_element_keeps_desktop_scale(tmp_path, monkeypatch):
@@ -75,7 +84,16 @@ def test_element_click_without_element_list_is_refused_before_the_driver():
     assert res.ok is False and res.code == "no_elements"
     assert "mode='som'" in res.message and "coordinate" in res.message
     backend._session.call_tool.assert_not_called()
-    assert _classify_action_result(res)["decision"] != "escalate"
+    assert _classify_action_result(res)["decision"] == "recapture"
+
+
+def test_verdict_echoes_target_only_escalation():
+    # cua-driver 0.21 sends escalation={"target", "reason"}; older drivers send "recommended".
+    res = ActionResult(ok=True, action="type_text", effect="suspected_noop",
+                       escalation={"target": "foreground", "reason": "delivery_failed"})
+    assert _classify_action_result(res)["recommended"] == "foreground"
+    old = ActionResult(ok=True, action="click", effect="suspected_noop", escalation={"recommended": "px"})
+    assert _classify_action_result(old)["recommended"] == "px"
 
 
 def test_element_click_after_capture_with_elements_still_reaches_the_driver():
