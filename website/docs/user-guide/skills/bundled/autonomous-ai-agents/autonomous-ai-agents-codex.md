@@ -54,6 +54,9 @@ Requires the Codex CLI. Flags checked with codex-cli 0.167.2 (2026-11-12).
   leave it waiting at "Reading additional input from stdin...". This matters
   especially for background runs. Use `pty=true` for interactive `codex`.
 
+Hermes's own `openai-codex` provider uses Hermes-managed OAuth after
+`hermes auth add openai-codex`, separate from the standalone Codex CLI login.
+
 Shell examples use POSIX stdin redirection; on Windows use a compatible shell
 or `pty=true`.
 
@@ -90,7 +93,6 @@ process(action="kill", session_id="<id>")
 | `exec "prompt"` | One-shot execution, exits when done |
 | `-s, --sandbox <mode>` | Command sandbox: `read-only`, `workspace-write`, or `danger-full-access`; not an approval-policy switch |
 | `--dangerously-bypass-approvals-and-sandbox` | No sandbox, no approvals (fastest, most dangerous; `--yolo` still works as a hidden alias) |
-| `--sandbox danger-full-access` | No Codex sandbox; useful when the host service context breaks bubblewrap |
 | `--skip-git-repo-check` | Allow `exec` outside a Git repository |
 | `--json` | Emit `exec` events as JSONL on stdout |
 | `-o, --output-last-message <file>` | Write the final `exec` response to a file |
@@ -139,22 +141,22 @@ terminal(command="REVIEW=$(mktemp -d) && git clone https://github.com/user/repo.
 
 ```
 # Create worktrees
-terminal(command="git worktree add -b fix/issue-78 ~/issue-78 main", workdir="~/project")
-terminal(command="git worktree add -b fix/issue-99 ~/issue-99 main", workdir="~/project")
+terminal(command="git worktree add -b fix/issue-78 ~/.hermes/cache/scratch/issue-78 main", workdir="~/project")
+terminal(command="git worktree add -b fix/issue-99 ~/.hermes/cache/scratch/issue-99 main", workdir="~/project")
 
 # Launch Codex in each
-terminal(command="codex exec --sandbox workspace-write 'Fix issue #78: <description>. Commit when done.' </dev/null", workdir="~/issue-78", background=true)
-terminal(command="codex exec --sandbox workspace-write 'Fix issue #99: <description>. Commit when done.' </dev/null", workdir="~/issue-99", background=true)
+terminal(command="codex exec --sandbox workspace-write 'Fix issue #78: <description>. Commit when done.' </dev/null", workdir="~/.hermes/cache/scratch/issue-78", background=true)
+terminal(command="codex exec --sandbox workspace-write 'Fix issue #99: <description>. Commit when done.' </dev/null", workdir="~/.hermes/cache/scratch/issue-99", background=true)
 
 # Monitor
 process(action="list")
 
 # After completion, push and create PRs
-terminal(command="cd ~/issue-78 && git push -u origin fix/issue-78")
+terminal(command="cd ~/.hermes/cache/scratch/issue-78 && git push -u origin fix/issue-78")
 terminal(command="gh pr create --repo user/repo --head fix/issue-78 --title 'fix: ...' --body '...'")
 
 # Cleanup
-terminal(command="git worktree remove ~/issue-78", workdir="~/project")
+terminal(command="git worktree remove ~/.hermes/cache/scratch/issue-78", workdir="~/project")
 ```
 
 ## Batch PR Reviews
