@@ -43,6 +43,7 @@ import {
 import { reportGatewayStartTimeout } from './gatewayStartTimeout.js'
 import type { GatewayEventHandlerContext, NoticeLevel } from './interfaces.js'
 import { applyControlSnapshot } from './loopStatus.js'
+import { handleNextPromptEvent } from './nextPromptStore.js'
 import { getOverlayState, patchOverlayState, SENSITIVE_PROMPTS } from './overlayStore.js'
 import { takePastes } from './pasteStore.js'
 import { markBubbleShown, newlyStartedRows } from './pendingBubbles.js'
@@ -1177,7 +1178,9 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
 
   // Shared-control settles and the skills.changed catalog refetch need no per-event state.
   const handledBeforeSwitch = (ev: AnyGatewayEvent) =>
-    settleSharedPrompt(ev) || refreshSlashCatalogOnSkillsChange(ev, rpc, setCatalog)
+    settleSharedPrompt(ev) ||
+    refreshSlashCatalogOnSkillsChange(ev, rpc, setCatalog) ||
+    handleNextPromptEvent(ev, gw, turnController.interrupted)
 
   return (ev: AnyGatewayEvent) => {
     const sid = getUiState().sid

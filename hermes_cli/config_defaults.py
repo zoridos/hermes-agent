@@ -800,7 +800,7 @@ DEFAULT_CONFIG = {
         # Skip tool-call-only assistant entries in the recap so it isn't dominated by `[2 tool
         # calls: ...]` lines; False shows them inline.
         "resume_skip_tool_only": True,
-        "next_prompt_suggestions": False,  # classic CLI: one aux call per settled turn, Tab accepts the ghost text
+        "next_prompt_suggestions": False,  # classic CLI + TUI: one aux call per settled turn, Tab accepts the ghost text
         "busy_input_mode": "interrupt",  # interrupt | queue | steer
         # steer mode: false hides only the "Steered into current run" bubble; steering itself still
         # happens.

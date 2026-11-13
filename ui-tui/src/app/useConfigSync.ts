@@ -17,6 +17,7 @@ import {
   type IndicatorStyle,
   type StatusBarMode
 } from './interfaces.js'
+import { $nextPromptEnabled } from './nextPromptStore.js'
 import { turnController } from './turnController.js'
 import { getUiState, patchUiState } from './uiStore.js'
 
@@ -330,6 +331,8 @@ export const applyDisplay = (
   setBell(!!d.bell_on_complete)
 
   setBellOnPrompt?.(!!d.bell_on_prompt)
+
+  $nextPromptEnabled.set(!!d.next_prompt_suggestions)
 
   applyConfiguredTuiTheme(d.tui_theme)
 
