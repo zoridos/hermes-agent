@@ -105,8 +105,9 @@ interface Caret {
 }
 
 /** True for a caret, without a selection, at the end of the text the composer holds now. The caret
- *  is judged against that text, not the one it was reported with: an edit that moves no cursor
- *  (forward Delete, a submit after Home) reports no new caret, yet leaves the old position valid. */
+ *  is judged against that text, not the one it was reported with: its report trails an edit by a
+ *  render, and an edit that moves no cursor (forward Delete, a submit after Home) leaves the old
+ *  position valid against the new text. */
 export const caretAtEnd = (caret: Caret | null, input: string) =>
   !!caret && caret.start === caret.end && caret.cursor >= input.length
 
