@@ -98,10 +98,32 @@ export const nextPromptInView = (
 ) =>
   composer.blocked || composer.completing || composer.multiline ? '' : nextPromptRemainder(suggestion, composer.input)
 
-/** True only for a caret reported at the end of the text the composer holds now; a report for an
- *  older text (a forward Delete moves no cursor, so none follows it) proves nothing. */
-export const caretAtEnd = (caret: null | { cursor: number; value: string }, input: string) =>
-  !!caret && caret.value === input && caret.cursor >= input.length
+interface Caret {
+  cursor: number
+  end: number
+  start: number
+}
+
+/** True for a caret, without a selection, at the end of the text the composer holds now. The caret
+ *  is judged against that text, not the one it was reported with: an edit that moves no cursor
+ *  (forward Delete, a submit after Home) reports no new caret, yet leaves the old position valid. */
+export const caretAtEnd = (caret: Caret | null, input: string) =>
+  !!caret && caret.start === caret.end && caret.cursor >= input.length
+
+/** The part of the ghost the input really draws, for sizing the composer: over an empty input it is
+ *  the placeholder unless live dictation text has that slot; after typed text it follows the caret,
+ *  so only while that sits at the end. The caret report trails a keystroke by a render, so one
+ *  still at the end of the text it was reported with counts too: otherwise the composer would
+ *  shrink and regrow around a wrapped ghost on every character typed. */
+export const nextPromptDrawn = (
+  ghost: string,
+  composer: { caret: (Caret & { value?: string }) | null; input: string; voicePartial: string }
+) => {
+  const { caret, input, voicePartial } = composer
+  const drawn = input ? caretAtEnd(caret, input) || caretAtEnd(caret, caret?.value ?? input) : !voicePartial
+
+  return drawn ? ghost : ''
+}
 
 /** Tab takes the suggestion from anywhere; Right only where it has nowhere left to move. */
 export const acceptsNextPrompt = (

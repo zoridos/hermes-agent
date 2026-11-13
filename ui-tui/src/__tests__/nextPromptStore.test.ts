@@ -6,6 +6,7 @@ import {
   acceptsNextPrompt,
   caretAtEnd,
   dropNextPrompt,
+  nextPromptDrawn,
   nextPromptInView,
   nextPromptRemainder,
   noteComposerDraft,
@@ -106,13 +107,44 @@ describe('next-prompt suggestion (display.next_prompt_suggestions)', () => {
     expect(nextPromptRemainder('', 'run')).toBe('')
   })
 
-  it('treats the caret as at the end only when it is known to be, for the text now in the composer', () => {
-    expect(caretAtEnd({ cursor: 3, value: 'run' }, 'run')).toBe(true)
-    expect(caretAtEnd({ cursor: 0, value: '' }, '')).toBe(true)
-    expect(caretAtEnd({ cursor: 1, value: 'run' }, 'run')).toBe(false)
-    // A caret reported for an older text (forward Delete moved no cursor) proves nothing.
-    expect(caretAtEnd({ cursor: 3, value: 'run' }, 'ru')).toBe(false)
+  const caret = (cursor: number, selection = { end: cursor, start: cursor }) => ({ cursor, ...selection })
+
+  it('treats the caret as at the end when it sits at or past the end of the text now in the composer', () => {
+    expect(caretAtEnd(caret(3), 'run')).toBe(true)
+    expect(caretAtEnd(caret(0), '')).toBe(true)
+    expect(caretAtEnd(caret(1), 'run')).toBe(false)
     expect(caretAtEnd(null, 'run')).toBe(false)
+  })
+
+  it('judges the caret against the current text, since edits that move no cursor report no new caret', () => {
+    // Home then submit: the composer is cleared and the caret, still 0, is at its end.
+    expect(caretAtEnd(caret(0), '')).toBe(true)
+    // Forward Delete of the last character: "ru|n" became "ru|".
+    expect(caretAtEnd(caret(2), 'ru')).toBe(true)
+  })
+
+  it('does not treat a caret with a selection as at the end', () => {
+    expect(caretAtEnd(caret(3, { end: 3, start: 0 }), 'run')).toBe(false)
+  })
+
+  it('keeps the ghost counted while the caret report for the last keystroke is still on its way', () => {
+    // "ru" became "run": the input already draws the ghost after "run", the caret still says 2 of "ru".
+    const lagging = { ...caret(2), value: 'ru' }
+
+    expect(nextPromptDrawn(' the tests', { caret: lagging, input: 'run', voicePartial: '' })).toBe(' the tests')
+  })
+
+  it('reports the ghost as drawn only where the input draws it', () => {
+    // Over an empty input it is the placeholder, unless live dictation text has that slot.
+    expect(nextPromptDrawn('run the tests', { caret: null, input: '', voicePartial: '' })).toBe('run the tests')
+    expect(nextPromptDrawn('run the tests', { caret: null, input: '', voicePartial: 'schedule a' })).toBe('')
+    // After typed text it follows the caret, so only while that is at the end without a selection.
+    expect(nextPromptDrawn(' the tests', { caret: caret(3), input: 'run', voicePartial: '' })).toBe(' the tests')
+    expect(nextPromptDrawn(' the tests', { caret: caret(1), input: 'run', voicePartial: '' })).toBe('')
+    expect(
+      nextPromptDrawn(' the tests', { caret: caret(3, { end: 3, start: 0 }), input: 'run', voicePartial: '' })
+    ).toBe('')
+    expect(nextPromptDrawn(' the tests', { caret: null, input: 'run', voicePartial: '' })).toBe('')
   })
 
   it('offers nothing while a completion list, an overlay or a multi-line draft owns the composer', () => {

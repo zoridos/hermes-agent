@@ -8,6 +8,7 @@ import { Fragment, memo, type MutableRefObject, useEffect, useMemo, useRef } fro
 import { useGateway } from '../app/gatewayContext.js'
 import { $inputSelection } from '../app/inputSelectionStore.js'
 import type { AppLayoutProps } from '../app/interfaces.js'
+import { nextPromptDrawn } from '../app/nextPromptStore.js'
 import { $isBlocked, $overlayState, patchOverlayState } from '../app/overlayStore.js'
 import { $petBox } from '../app/petFlashStore.js'
 import { $uiState } from '../app/uiStore.js'
@@ -355,7 +356,13 @@ const ComposerPane = memo(function ComposerPane({
     height: inputHeight,
     rows: inputRows,
     scroll: inputScroll
-  } = composerViewport(composer.input + nextPrompt, inputSel, inputColumns, composer.pasteHint === 'collapse', composer.pagerPageSize)
+  } = composerViewport(
+    composer.input + nextPromptDrawn(nextPrompt, { caret: inputSel, input: composer.input, voicePartial }),
+    inputSel,
+    inputColumns,
+    composer.pasteHint === 'collapse',
+    composer.pagerPageSize
+  )
 
   const inputMouseRef = useRef<null | TextInputMouseApi>(null)
 
