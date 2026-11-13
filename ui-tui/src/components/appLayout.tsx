@@ -11,6 +11,7 @@ import type { AppLayoutProps } from '../app/interfaces.js'
 import { $isBlocked, $overlayState, patchOverlayState } from '../app/overlayStore.js'
 import { $petBox } from '../app/petFlashStore.js'
 import { $uiState } from '../app/uiStore.js'
+import { useNextPromptSuggestion } from '../app/useNextPrompt.js'
 import { usePet } from '../app/usePet.js'
 import { $voicePartial } from '../app/voicePartialStore.js'
 import { INLINE_MODE, NATIVE_MODE, SHOW_FPS, TERMUX_TUI_MODE } from '../config/env.js'
@@ -49,10 +50,10 @@ import { type InputCursorSnapshot, TextInput, type TextInputMouseApi } from './t
 // Box geometry, kept here so the transcript's reservation math matches the
 // rendered overlay exactly.
 
-/** Blank-input hint: live STT text while dictating (stt.streaming) always wins; else a rotating
- *  placeholder on a fresh transcript, or the busy hint. */
-const composerHint = (voicePartial: string, freshTranscript: boolean, busyHint: string) =>
-  voicePartial || (freshTranscript ? placeholder() : busyHint)
+/** Blank-input hint: live STT text while dictating (stt.streaming) always wins, then a parked
+ *  next-prompt suggestion; else a rotating placeholder on a fresh transcript, or the busy hint. */
+export const composerHint = (voicePartial: string, nextPrompt: string, freshTranscript: boolean, busyHint: string) =>
+  voicePartial || nextPrompt || (freshTranscript ? placeholder() : busyHint)
 
 const PET_BOTTOM = 3 // rows the pet floats above the screen bottom (over the composer)
 const PET_PAD_LEFT = 2
@@ -330,6 +331,7 @@ const ComposerPane = memo(function ComposerPane({
 }) {
   const ui = useStore($uiState)
   const voicePartial = useStore($voicePartial)
+  const nextPrompt = useNextPromptSuggestion(composer)
   const T = useT()
   const isBlocked = useStore($isBlocked)
   const sh = (composer.inputBuf[0] ?? composer.input).startsWith('!')
@@ -353,7 +355,7 @@ const ComposerPane = memo(function ComposerPane({
     height: inputHeight,
     rows: inputRows,
     scroll: inputScroll
-  } = composerViewport(composer.input, inputSel, inputColumns, composer.pasteHint === 'collapse', composer.pagerPageSize)
+  } = composerViewport(composer.input + nextPrompt, inputSel, inputColumns, composer.pasteHint === 'collapse', composer.pagerPageSize)
 
   const inputMouseRef = useRef<null | TextInputMouseApi>(null)
 
@@ -495,11 +497,12 @@ const ComposerPane = memo(function ComposerPane({
                   color={ui.theme.color.text}
                   columns={inputColumns}
                   cursorSnapshotRef={cursorSnapshotRef}
+                  ghost={nextPrompt}
                   mouseApiRef={inputMouseRef}
                   onChange={composer.updateInput}
                   onPaste={composer.handleTextPaste}
                   onSubmit={composer.submit}
-                  placeholder={composerHint(voicePartial, composer.empty, ui.busy ? T.composer.interruptHint : '')}
+                  placeholder={composerHint(voicePartial, nextPrompt, composer.empty, ui.busy ? T.composer.interruptHint : '')}
                   // Exactly the "(and N more toolsets…)" tone. `muted` is a
                   // MID-luminance family tone, so it reads receded on both
                   // poles even when polarity detection is wrong (transparent

@@ -1569,12 +1569,13 @@ The main model and conversation history still retain the full skill content.
 Attachment-only turns retain the existing enriched-message title fallback.
 This affects new title generation; it does not repair previously named sessions.
 
-### Next-prompt suggestions (classic CLI)
+### Next-prompt suggestions (classic CLI and TUI)
 
 Set `display.next_prompt_suggestions: true` and, after each finished turn, a small auxiliary model
 guesses your most likely next prompt and shows it as gray ghost text in the empty input. Press
 Tab to accept it as editable text; typing a prefix of it keeps showing the remainder, and typing
-anything else hides it (deleting back to a prefix brings it back) until you submit. It is off by default because it costs one small auxiliary
+anything else hides it (deleting back to a prefix brings it back) until you submit. The TUI
+(`hermes --tui`) behaves the same; there the Right arrow, with the cursor at the end of the text, accepts it too. It is off by default because it costs one small auxiliary
 call per turn. The call never enters the conversation, so it cannot affect prompt caching, and a
 slow or failed call just shows nothing. Route it with `auxiliary.next_prompt.*` (provider `auto`
 follows your session's live model; timeout defaults to 15s).
