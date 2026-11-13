@@ -690,6 +690,11 @@ export function supportsFastEchoTerminal(env: NodeJS.ProcessEnv = process.env): 
  * `offset` to stay aligned. `[39m` closes back to the outer `<Text color>`
  * (chalk re-opens it), leaving prose on the theme's text tone.
  */
+/** The hint in view: the placeholder over an empty input, else a ghost completion (the rest of a
+ *  suggestion the typed text is a prefix of) while the cursor sits at the end of that text. */
+export const hintInView = (display: string, placeholder: string, ghost: string | undefined, cursorAtEnd: boolean) =>
+  display ? (cursorAtEnd && ghost) || '' : placeholder
+
 function paintHighlights(value: string, accentOpen: string, mask: boolean[] | null, offset = 0) {
   if (!accentOpen || !mask) {
     return value
@@ -789,6 +794,7 @@ export function TextInput({
   voiceRecordKey = DEFAULT_VOICE_RECORD_KEY,
   placeholder = '',
   placeholderColor,
+  ghost,
   accentColor,
   color,
   focus = true
@@ -870,6 +876,7 @@ export function TextInput({
   // over a single-line string in the common case), so dropping useMemo
   // is fine.
   const layout = resolveCursorLayout(display, cur, curRef.current, columns)
+  const hint = hintInView(display, placeholder, ghost, !selected && curRef.current === display.length)
 
   const boxRef = useDeclaredCursor({
     line: layout.line,
@@ -877,7 +884,7 @@ export function TextInput({
     // The placeholder state draws a synthetic cursor (see `rendered`), so the
     // hardware cursor must not also be declared there — hosts paint it with
     // their own cursor colors as a solid slab over the first glyph.
-    active: focus && termFocus && !selected && !(!display && !!placeholder)
+    active: focus && termFocus && !selected && !hint
   })
 
   // Hide the hardware cursor while a selection is active (prevents
@@ -890,7 +897,7 @@ export function TextInput({
   // placeholder state draws its own synthetic cursor instead (the
   // bubbletea/bubbles textinput pattern: the cursor cell renders the first
   // placeholder character, styled), so the hint is always fully legible.
-  const placeholderShowing = focus && !display && !!placeholder
+  const placeholderShowing = focus && !!hint
   const hideHardwareCursor = focus && !!stdout?.isTTY && (!!selected || !termFocus || placeholderShowing)
 
   useEffect(() => {
@@ -924,10 +931,10 @@ export function TextInput({
       return display ? paintHighlights(display, accentOpen, highlights) : colorizeHint(placeholder, placeholderColor)
     }
 
-    if (!display && placeholder) {
-      return (
-        hintCursorCell(placeholder[0] ?? ' ', placeholderColor) + colorizeHint(placeholder.slice(1), placeholderColor)
-      )
+    if (hint) {
+      const typed = paintHighlights(display, accentOpen, highlights)
+
+      return typed + hintCursorCell(hint[0] ?? ' ', placeholderColor) + colorizeHint(hint.slice(1), placeholderColor)
     }
 
     if (selected) {
@@ -937,7 +944,7 @@ export function TextInput({
     return nativeCursor
       ? paintHighlights(display, accentOpen, highlights) || ' '
       : renderWithCursor(display, cur, accentOpen, highlights)
-  }, [accentOpen, cur, display, focus, highlights, nativeCursor, placeholder, placeholderColor, selected])
+  }, [accentOpen, cur, display, focus, highlights, hint, nativeCursor, placeholder, placeholderColor, selected])
 
   useEffect(() => {
     // `value === vRef.current` misses a deferred flush still in flight: the
@@ -1120,7 +1127,7 @@ export function TextInput({
   }
 
   const canFastEchoBase = () =>
-    supportsFastEchoTerminal() && focus && termFocus && !selected && !mask && !!stdout?.isTTY
+    supportsFastEchoTerminal() && focus && termFocus && !selected && !mask && !ghost && !!stdout?.isTTY
 
   const canFastAppend = (current: string, cursor: number, text: string) =>
     canFastEchoBase() &&
@@ -1871,6 +1878,8 @@ interface TextInputProps {
     e: PasteEvent
   ) => { cursor: number; value: string } | Promise<{ cursor: number; value: string } | null> | null
   onSubmit?: (v: string) => void
+  /** Remainder of a suggestion the typed text is a prefix of, drawn in the hint tone after the cursor. */
+  ghost?: string
   placeholder?: string
   /** Hex color for placeholder text (theme muted); SGR dim when omitted. */
   placeholderColor?: string

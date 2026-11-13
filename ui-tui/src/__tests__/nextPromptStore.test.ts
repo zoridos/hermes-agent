@@ -5,10 +5,10 @@ import {
   $nextPromptEnabled,
   acceptsNextPrompt,
   dropNextPrompt,
+  nextPromptRemainder,
   noteComposerDraft,
   parkNextPrompt,
-  requestNextPrompt,
-  takeNextPrompt
+  requestNextPrompt
 } from '../app/nextPromptStore.js'
 import { patchUiState, resetUiState } from '../app/uiStore.js'
 
@@ -50,11 +50,11 @@ describe('next-prompt suggestion (display.next_prompt_suggestions)', () => {
     expect(gw.request).not.toHaveBeenCalled()
   })
 
-  it('drops an answer the user typed past, even after the composer is empty again', async () => {
+  it('drops an answer that lands while the composer holds a draft', async () => {
     requestNextPrompt(gateway(), 'sess-1')
     noteComposerDraft(true)
-    noteComposerDraft(false)
     await parkNextPrompt({ task_id: 'np_1', text: 'run the tests' })
+    noteComposerDraft(false)
 
     expect($nextPrompt.get()).toBe('')
   })
@@ -84,26 +84,34 @@ describe('next-prompt suggestion (display.next_prompt_suggestions)', () => {
     expect($nextPrompt.get()).toBe('')
   })
 
-  it('removes a parked suggestion once the user types', async () => {
+  it('keeps a parked suggestion while the user types, so deleting back to a prefix can show it again', async () => {
     requestNextPrompt(gateway(), 'sess-1')
     await parkNextPrompt({ task_id: 'np_1', text: 'run the tests' })
     noteComposerDraft(true)
 
-    expect($nextPrompt.get()).toBe('')
+    expect($nextPrompt.get()).toBe('run the tests')
   })
 
-  it('hands the suggestion over once when accepted', async () => {
-    requestNextPrompt(gateway(), 'sess-1')
-    await parkNextPrompt({ task_id: 'np_1', text: 'run the tests' })
-
-    expect(takeNextPrompt()).toBe('run the tests')
-    expect(takeNextPrompt()).toBe('')
+  it('shows the rest of the suggestion while the typed text is a prefix of it', () => {
+    expect(nextPromptRemainder('run the tests', '')).toBe('run the tests')
+    expect(nextPromptRemainder('run the tests', 'run')).toBe(' the tests')
   })
 
-  it('is accepted by Tab or Right, not Shift+Tab', () => {
-    expect(acceptsNextPrompt({ rightArrow: false, shift: false, tab: true })).toBe(true)
-    expect(acceptsNextPrompt({ rightArrow: true, shift: false, tab: false })).toBe(true)
-    expect(acceptsNextPrompt({ rightArrow: false, shift: true, tab: true })).toBe(false)
-    expect(acceptsNextPrompt({ rightArrow: false, shift: false, tab: false })).toBe(false)
+  it('shows nothing once the typed text leaves the suggestion or completes it', () => {
+    expect(nextPromptRemainder('run the tests', 'rux')).toBe('')
+    expect(nextPromptRemainder('run the tests', 'Run')).toBe('')
+    expect(nextPromptRemainder('run the tests', 'run the tests')).toBe('')
+    expect(nextPromptRemainder('', 'run')).toBe('')
+  })
+
+  it('is accepted by Tab, or by Right with the cursor at the end of the text', () => {
+    expect(acceptsNextPrompt({ tab: true }, false)).toBe(true)
+    expect(acceptsNextPrompt({ rightArrow: true }, true)).toBe(true)
+  })
+
+  it('is not accepted by Shift+Tab, other keys, or Right while the cursor is inside the text', () => {
+    expect(acceptsNextPrompt({ shift: true, tab: true }, true)).toBe(false)
+    expect(acceptsNextPrompt({}, true)).toBe(false)
+    expect(acceptsNextPrompt({ rightArrow: true }, false)).toBe(false)
   })
 })

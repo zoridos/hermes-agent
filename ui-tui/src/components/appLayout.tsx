@@ -497,6 +497,7 @@ const ComposerPane = memo(function ComposerPane({
                   color={ui.theme.color.text}
                   columns={inputColumns}
                   cursorSnapshotRef={cursorSnapshotRef}
+                  ghost={nextPrompt}
                   mouseApiRef={inputMouseRef}
                   onChange={composer.updateInput}
                   onPaste={composer.handleTextPaste}

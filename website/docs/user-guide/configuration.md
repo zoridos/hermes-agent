@@ -1574,8 +1574,8 @@ This affects new title generation; it does not repair previously named sessions.
 Set `display.next_prompt_suggestions: true` and, after each finished turn, a small auxiliary model
 guesses your most likely next prompt and shows it as gray ghost text in the empty input. Press
 Tab to accept it as editable text; typing a prefix of it keeps showing the remainder, and typing
-anything else hides it (deleting back to a prefix brings it back) until you submit. In the TUI
-(`hermes --tui`) Tab or Right accepts it, and typing anything drops it until the next turn. It is off by default because it costs one small auxiliary
+anything else hides it (deleting back to a prefix brings it back) until you submit. The TUI
+(`hermes --tui`) behaves the same; there the Right arrow, with the cursor at the end of the text, accepts it too. It is off by default because it costs one small auxiliary
 call per turn. The call never enters the conversation, so it cannot affect prompt caching, and a
 slow or failed call just shows nothing. Route it with `auxiliary.next_prompt.*` (provider `auto`
 follows your session's live model; timeout defaults to 15s).

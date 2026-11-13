@@ -7,8 +7,9 @@ import { getUiState } from './uiStore.js'
 
 // Ghost-text guess of the user's next prompt (`display.next_prompt_suggestions`, classic-CLI
 // parity). A settled turn asks the gateway for one (`prompt.next_prompt`); the answer
-// (`next_prompt.complete`) shows as the composer's placeholder and Tab or Right accepts it.
-// Nothing is sent unless the user accepts it and presses Enter.
+// (`next_prompt.complete`) stays parked until the next turn. The composer shows whatever part of it
+// the typed text has not reached yet, and Tab or Right accepts it. Nothing is sent unless the user
+// accepts it and presses Enter.
 export const $nextPrompt = atom('')
 export const $nextPromptEnabled = atom(false)
 
@@ -16,19 +17,15 @@ export const $nextPromptEnabled = atom(false)
 let pending: null | Promise<null | string> = null
 let composerEmpty = true
 
-/** Forget the suggestion and any answer still in flight (new turn, new session, typing). */
+/** Forget the suggestion and any answer still in flight (new turn, new session). */
 export function dropNextPrompt() {
   pending = null
   $nextPrompt.set('')
 }
 
-/** Mirror of the composer: a draft drops the suggestion, since it only fits an empty input. */
+/** Mirror of the composer: a guess is only asked for, and only lands, while it is empty. */
 export function noteComposerDraft(hasDraft: boolean) {
   composerEmpty = !hasDraft
-
-  if (hasDraft) {
-    dropNextPrompt()
-  }
 }
 
 export function requestNextPrompt(gw: Pick<GatewayClient, 'request'>, sid: null | string | undefined) {
@@ -84,14 +81,13 @@ export function handleNextPromptEvent(
   return false
 }
 
-/** The suggestion being accepted: returns it and clears it. */
-export function takeNextPrompt(): string {
-  const text = $nextPrompt.get()
+/** What is left to show of `suggestion` after the typed `input`: all of it over an empty input, the
+ *  rest while the input is a prefix of it, nothing once the input differs or already equals it. */
+export const nextPromptRemainder = (suggestion: string, input: string) =>
+  input.length < suggestion.length && suggestion.startsWith(input) ? suggestion.slice(input.length) : ''
 
-  dropNextPrompt()
-
-  return text
-}
-
-export const acceptsNextPrompt = (key: { rightArrow?: boolean; shift?: boolean; tab?: boolean }) =>
-  (!!key.tab && !key.shift) || !!key.rightArrow
+/** Tab takes the suggestion from anywhere; Right only where it has nowhere left to move. */
+export const acceptsNextPrompt = (
+  key: { rightArrow?: boolean; shift?: boolean; tab?: boolean },
+  cursorAtEnd: boolean
+) => (!!key.tab && !key.shift) || (!!key.rightArrow && cursorAtEnd)

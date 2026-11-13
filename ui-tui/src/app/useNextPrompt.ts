@@ -2,36 +2,49 @@ import { useInput } from '@hermes/ink'
 import { useStore } from '@nanostores/react'
 import { useEffect } from 'react'
 
-import { $nextPrompt, acceptsNextPrompt, dropNextPrompt, noteComposerDraft, takeNextPrompt } from './nextPromptStore.js'
+import { getInputSelection } from './inputSelectionStore.js'
+import {
+  $nextPrompt,
+  acceptsNextPrompt,
+  dropNextPrompt,
+  nextPromptRemainder,
+  noteComposerDraft
+} from './nextPromptStore.js'
 import { $isBlocked } from './overlayStore.js'
 import { $uiState } from './uiStore.js'
 
 interface SuggestionComposer {
+  completions: unknown[]
   input: string
   inputBuf: string[]
   updateInput: (value: string) => void
 }
 
-/** The composer side of next-prompt suggestions: returns the ghost text to show in the empty
- *  input, and lets Tab or Right turn it into editable text (classic-CLI parity). */
+/** The composer side of next-prompt suggestions: returns the ghost text to draw after the typed
+ *  text (the whole suggestion over an empty input, the rest while the input is a prefix of it), and
+ *  lets Tab or Right turn it into editable text (classic-CLI parity). */
 export function useNextPromptSuggestion(composer: SuggestionComposer): string {
   const suggestion = useStore($nextPrompt)
   const blocked = useStore($isBlocked)
   const { sid } = useStore($uiState)
   const hasDraft = !!composer.input || composer.inputBuf.length > 0
+  const remainder = blocked || composer.inputBuf.length ? '' : nextPromptRemainder(suggestion, composer.input)
 
-  // The suggestion only fits an empty composer, and belongs to the session it was made for.
+  // A guess is only asked for over an empty composer, and belongs to the session it was made for.
   useEffect(() => noteComposerDraft(hasDraft), [hasDraft])
   useEffect(() => dropNextPrompt, [sid])
 
   useInput(
     (_ch, key) => {
-      if (acceptsNextPrompt(key)) {
-        composer.updateInput(takeNextPrompt())
+      const caret = getInputSelection()
+
+      if (acceptsNextPrompt(key, !caret || caret.cursor >= caret.value.length)) {
+        composer.updateInput(suggestion)
       }
     },
-    { isActive: !!suggestion && !hasDraft && !blocked }
+    // An open completion list owns Tab.
+    { isActive: !!remainder && !composer.completions.length }
   )
 
-  return suggestion
+  return remainder
 }
