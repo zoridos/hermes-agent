@@ -526,6 +526,9 @@ def _classify_action_result(res: ActionResult) -> dict[str, Any]:
     if res.effect == "unverifiable":
         return {"decision": "verify_fresh_state", "hint": ("Input was delivered but not confirmed. Re-capture and check the "
                 "result BEFORE any retry — do not repeat the input on an escalation recommendation alone.")}
+    if res.code == "no_elements":  # refused by Hermes before delivery: nothing to escalate, the request was unaddressable
+        return {"decision": "recapture", "hint": ("Nothing was sent. The latest capture has no element list: capture with "
+                "mode='som' or 'ax' and click by the new index, or click by coordinate.")}
     if res.effect == "suspected_noop" or not res.ok or res.code is not None:
         meta = res.meta if isinstance(res.meta, dict) else {}
         delivered, requested = meta.get("delivered_chars"), meta.get("requested_chars")
@@ -611,13 +614,41 @@ def _format_elements(elements: list[UIElement], max_lines: int = 40) -> list[str
            + (f" [{e.app}]" if e.app else "") for e in elements[:max_lines]]
     return out + ([f"  ... +{len(elements) - max_lines} more (call capture with app= to narrow)"] if len(elements) > max_lines else [])
 
+def _window_origin(elements: list[UIElement]) -> Optional[tuple[int, int, int, int]]:
+    # The captured window's own frame: the AXWindow / Window element (#0 on macOS). None = full-desktop capture or an
+    # AX tree that does not expose one.
+    for e in elements:
+        if e.role.lower() in ("axwindow", "window") and not _bounds_unknown(e.bounds):
+            with contextlib.suppress(TypeError, ValueError):
+                x, y, w, h = (int(v) for v in e.bounds)
+                if w > 0 and h > 0:
+                    return x, y, w, h
+    return None
+
+def _window_local_hints(origin: tuple[int, int, int, int], image_width: int,
+                        image_height: int) -> tuple[Optional[float], Optional[str]]:
+    """Window captures: ``coordinate=`` is window-local screenshot pixels (cua-driver refuses desktop coordinates as
+    outside the window), while element bounds stay in desktop space. Scale only when the screenshot is downscaled
+    relative to the window size."""
+    x, y, w, h = origin
+    scale = round(max(w / image_width, h / image_height), 2) if max(w / image_width, h / image_height) > 1.05 else None
+    if (x, y) == (0, 0) and scale is None:
+        return None, None
+    note = (f"coordinate= takes window-local screenshot pixels ({image_width}x{image_height}), not desktop coordinates; "
+            f"element bounds are desktop coordinates — subtract the window origin ({x}, {y}) to get the window-local point"
+            + (f", then divide by {scale} (the screenshot is downscaled)" if scale else ""))
+    return scale, note
+
 def _bounds_hints(elements: list[UIElement], image_width: int, image_height: int) -> tuple[Optional[float], Optional[str]]:
     """(scale, note) when element bounds live in a different coordinate space than the screenshot, else (None, None).
-    On HiDPI displays AX bounds are native while the screenshot is downscaled, so coordinate= clicks read off the
-    screenshot miss by the scale factor. 5% slack: window chrome can hang a few px past the captured frame without
-    implying a different space. Scale heuristic: larger axis ratio wins."""
+    Window captures: see ``_window_local_hints``. Otherwise (full desktop) on HiDPI displays AX bounds are native
+    while the screenshot is downscaled, so coordinate= clicks read off the screenshot miss by the scale factor.
+    5% slack: window chrome can hang a few px past the captured frame without implying a different space. Scale
+    heuristic: larger axis ratio wins."""
     if not elements or image_width <= 0 or image_height <= 0:
         return None, None
+    if origin := _window_origin(elements):
+        return _window_local_hints(origin, image_width, image_height)
     max_x = max_y = 0
     for e in elements:
         try:
@@ -662,7 +693,8 @@ def _capture_summary_lines(v: SimpleNamespace) -> list[str]:
     summary names indices the model can't find."""
     notes = (
         v.bounds_note and v.bounds_note + (f"; estimated scale ~{v.bounds_scale}x (screenshot position x "
-                                           f"{v.bounds_scale} ≈ native coordinate)" if v.bounds_scale else ""),
+                                           f"{v.bounds_scale} ≈ native coordinate)"
+                                           if v.bounds_scale and "native desktop" in v.bounds_note else ""),
         v.screenshot_path and f"shareable screenshot saved to {v.screenshot_path}",
         v.cap.note,
         v.elements_file and (f"{'' if v.ax_capped else 'full '}element tree with untruncated labels "
