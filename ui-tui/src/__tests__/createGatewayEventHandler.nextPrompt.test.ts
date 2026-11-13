@@ -103,6 +103,16 @@ describe('createGatewayEventHandler — next-prompt suggestions', () => {
     expect(nextPromptCalls(ctx)).toEqual([])
   })
 
+  it('asks for nothing after a turn another client interrupted', () => {
+    const ctx = buildCtx()
+    const onEvent = createGatewayEventHandler(ctx)
+
+    onEvent({ payload: {}, type: 'message.start' } as any)
+    onEvent({ payload: { status: 'interrupted', text: 'partial' }, type: 'message.complete' } as any)
+
+    expect(nextPromptCalls(ctx)).toEqual([])
+  })
+
   it('removes the suggestion when the next turn starts', async () => {
     const ctx = buildCtx()
     const onEvent = createGatewayEventHandler(ctx)

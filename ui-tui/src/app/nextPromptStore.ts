@@ -13,6 +13,10 @@ import { getUiState } from './uiStore.js'
 export const $nextPrompt = atom('')
 export const $nextPromptEnabled = atom(false)
 
+// message.complete statuses that leave nothing to follow up on. `interrupted` also arrives for a turn
+// another client stopped on a shared gateway, which the local interrupt flag never sees.
+const UNSETTLED = new Set(['error', 'interrupted'])
+
 // The in-flight request's task id; null orphans whatever answer is still on its way.
 let pending: null | Promise<null | string> = null
 let composerEmpty = true
@@ -71,7 +75,7 @@ export function handleNextPromptEvent(
 
   if (
     ev.type === 'message.start' ||
-    (ev.type === 'message.complete' && (interrupted || ev.payload?.status === 'error'))
+    (ev.type === 'message.complete' && (interrupted || UNSETTLED.has(String(ev.payload?.status))))
   ) {
     dropNextPrompt()
   } else if (ev.type === 'message.complete') {
@@ -85,6 +89,19 @@ export function handleNextPromptEvent(
  *  rest while the input is a prefix of it, nothing once the input differs or already equals it. */
 export const nextPromptRemainder = (suggestion: string, input: string) =>
   input.length < suggestion.length && suggestion.startsWith(input) ? suggestion.slice(input.length) : ''
+
+/** The ghost text the composer may draw now: none while a completion list (which owns Tab), an
+ *  overlay or a multi-line draft has it. */
+export const nextPromptInView = (
+  suggestion: string,
+  composer: { blocked: boolean; completing: boolean; input: string; multiline: boolean }
+) =>
+  composer.blocked || composer.completing || composer.multiline ? '' : nextPromptRemainder(suggestion, composer.input)
+
+/** True only for a caret reported at the end of the text the composer holds now; a report for an
+ *  older text (a forward Delete moves no cursor, so none follows it) proves nothing. */
+export const caretAtEnd = (caret: null | { cursor: number; value: string }, input: string) =>
+  !!caret && caret.value === input && caret.cursor >= input.length
 
 /** Tab takes the suggestion from anywhere; Right only where it has nowhere left to move. */
 export const acceptsNextPrompt = (

@@ -4,7 +4,9 @@ import {
   $nextPrompt,
   $nextPromptEnabled,
   acceptsNextPrompt,
+  caretAtEnd,
   dropNextPrompt,
+  nextPromptInView,
   nextPromptRemainder,
   noteComposerDraft,
   parkNextPrompt,
@@ -102,6 +104,24 @@ describe('next-prompt suggestion (display.next_prompt_suggestions)', () => {
     expect(nextPromptRemainder('run the tests', 'Run')).toBe('')
     expect(nextPromptRemainder('run the tests', 'run the tests')).toBe('')
     expect(nextPromptRemainder('', 'run')).toBe('')
+  })
+
+  it('treats the caret as at the end only when it is known to be, for the text now in the composer', () => {
+    expect(caretAtEnd({ cursor: 3, value: 'run' }, 'run')).toBe(true)
+    expect(caretAtEnd({ cursor: 0, value: '' }, '')).toBe(true)
+    expect(caretAtEnd({ cursor: 1, value: 'run' }, 'run')).toBe(false)
+    // A caret reported for an older text (forward Delete moved no cursor) proves nothing.
+    expect(caretAtEnd({ cursor: 3, value: 'run' }, 'ru')).toBe(false)
+    expect(caretAtEnd(null, 'run')).toBe(false)
+  })
+
+  it('offers nothing while a completion list, an overlay or a multi-line draft owns the composer', () => {
+    const idle = { blocked: false, completing: false, input: 'run', multiline: false }
+
+    expect(nextPromptInView('run the tests', idle)).toBe(' the tests')
+    expect(nextPromptInView('run the tests', { ...idle, completing: true })).toBe('')
+    expect(nextPromptInView('run the tests', { ...idle, blocked: true })).toBe('')
+    expect(nextPromptInView('run the tests', { ...idle, multiline: true })).toBe('')
   })
 
   it('is accepted by Tab, or by Right with the cursor at the end of the text', () => {

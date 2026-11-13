@@ -6,8 +6,9 @@ import { getInputSelection } from './inputSelectionStore.js'
 import {
   $nextPrompt,
   acceptsNextPrompt,
+  caretAtEnd,
   dropNextPrompt,
-  nextPromptRemainder,
+  nextPromptInView,
   noteComposerDraft
 } from './nextPromptStore.js'
 import { $isBlocked } from './overlayStore.js'
@@ -17,6 +18,7 @@ interface SuggestionComposer {
   completions: unknown[]
   input: string
   inputBuf: string[]
+  queuedDisplay: unknown[]
   updateInput: (value: string) => void
 }
 
@@ -27,8 +29,15 @@ export function useNextPromptSuggestion(composer: SuggestionComposer): string {
   const suggestion = useStore($nextPrompt)
   const blocked = useStore($isBlocked)
   const { sid } = useStore($uiState)
-  const hasDraft = !!composer.input || composer.inputBuf.length > 0
-  const remainder = blocked || composer.inputBuf.length ? '' : nextPromptRemainder(suggestion, composer.input)
+  // A queued message is the next prompt already, so it counts as a draft: no guess is asked for.
+  const hasDraft = !!composer.input || composer.inputBuf.length > 0 || composer.queuedDisplay.length > 0
+
+  const remainder = nextPromptInView(suggestion, {
+    blocked,
+    completing: composer.completions.length > 0,
+    input: composer.input,
+    multiline: composer.inputBuf.length > 0
+  })
 
   // A guess is only asked for over an empty composer, and belongs to the session it was made for.
   useEffect(() => noteComposerDraft(hasDraft), [hasDraft])
@@ -36,14 +45,11 @@ export function useNextPromptSuggestion(composer: SuggestionComposer): string {
 
   useInput(
     (_ch, key) => {
-      const caret = getInputSelection()
-
-      if (acceptsNextPrompt(key, !caret || caret.cursor >= caret.value.length)) {
+      if (acceptsNextPrompt(key, caretAtEnd(getInputSelection(), composer.input))) {
         composer.updateInput(suggestion)
       }
     },
-    // An open completion list owns Tab.
-    { isActive: !!remainder && !composer.completions.length }
+    { isActive: !!remainder }
   )
 
   return remainder

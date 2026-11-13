@@ -355,7 +355,7 @@ const ComposerPane = memo(function ComposerPane({
     height: inputHeight,
     rows: inputRows,
     scroll: inputScroll
-  } = composerViewport(composer.input, inputSel, inputColumns, composer.pasteHint === 'collapse', composer.pagerPageSize)
+  } = composerViewport(composer.input + nextPrompt, inputSel, inputColumns, composer.pasteHint === 'collapse', composer.pagerPageSize)
 
   const inputMouseRef = useRef<null | TextInputMouseApi>(null)
 
